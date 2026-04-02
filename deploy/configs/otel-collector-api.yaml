@@ -131,14 +131,16 @@ exporters:
     access_token: ${env:SPLUNK_ACCESS_TOKEN}
     realm: ${env:SPLUNK_REALM}
 
-  splunk_hec/o11y:
-    token: ${env:SPLUNK_ACCESS_TOKEN}
-    endpoint: https://ingest.${env:SPLUNK_REALM}.signalfx.com/v1/log
+  splunk_hec/platform:
+    token: ${env:SPLUNK_PLATFORM_HEC_TOKEN}
+    endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
     source: careconnect-api
     sourcetype: careconnect:json
     index: careconnect
     max_connections: 20
     timeout: 10s
+    tls:
+      insecure_skip_verify: false
 
 service:
   extensions: [health_check, zpages]
@@ -154,7 +156,7 @@ service:
     logs:
       receivers: [filelog/api]
       processors: [memory_limiter, resourcedetection, resource/api, batch]
-      exporters: [splunk_hec/o11y]
+      exporters: [splunk_hec/platform]
 
   telemetry:
     logs:

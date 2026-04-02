@@ -50,13 +50,14 @@ echo ""
 info "Updating system packages..."
 apt-get update -qq
 apt-get upgrade -y -qq
-apt-get install -y -qq curl gnupg lsb-release postgresql-client-15 ufw
+apt-get install -y -qq curl gnupg lsb-release postgresql-client-17 ufw
 log "System updated"
 
 # ── Install Node.js 20 ────────────────────────────────────────
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
   info "Installing Node.js 20..."
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>/dev/null
+  # Force noble suite — NodeSource doesn't yet publish a questing repo
+  curl -fsSL https://deb.nodesource.com/setup_20.x | DISTRO=noble bash - 2>/dev/null
   apt-get install -y -qq nodejs
   log "Node.js $(node --version) installed"
 else

@@ -90,39 +90,22 @@ echo "JWT_SECRET:  $(openssl rand -hex 32)"
 
 ## Step 1 — Set up VM3 (Database)
 
-### 1a. Copy the deploy script to VM3
+Run this single command from your **local machine** (no SCP or separate SSH session needed).
+Values are sourced from the `config.env` you filled in during Step 0.
 
 ```bash
-# From your local machine
-scp -r healthcare/deploy ubuntu@<VM3-IP>:~/deploy
-```
-
-### 1b. Edit the script with your values
-
-```bash
-ssh ubuntu@<VM3-IP>
-nano ~/deploy/01-setup-db.sh
-```
-
-Update the CONFIGURATION section at the top:
-```bash
-DB_NAME="careconnect"
-DB_USER="careconnect"
-DB_PASSWORD="your-strong-password-here"
-API_PRIVATE_IP="10.0.1.20"    # VM2's private IP
-```
-
-### 1c. Run the setup script
-
-```bash
-sudo bash ~/deploy/01-setup-db.sh
+source deploy/config.env
+ssh ubuntu@<VM3-IP> "sudo env \
+  DB_NAME='$DB_NAME' DB_USER='$DB_USER' \
+  DB_PASSWORD='$DB_PASSWORD' API_PRIVATE_IP='$API_PRIVATE_IP' \
+  bash -s" < deploy/01-setup-db.sh
 ```
 
 Expected output:
 ```
 → Starting CareConnect database VM setup...
 ✓ System updated
-✓ PostgreSQL 15 installed
+✓ PostgreSQL 17 installed
 ✓ PostgreSQL service started
 ✓ Database 'careconnect' and user 'careconnect' created
 ✓ PostgreSQL network configuration complete

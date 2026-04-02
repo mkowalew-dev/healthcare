@@ -56,7 +56,8 @@ log "System packages updated"
 # ── Install Node.js 20 ───────────────────────────────────────
 if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
   info "Installing Node.js 20..."
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>/dev/null
+  # Force noble suite — NodeSource doesn't yet publish a questing repo
+  curl -fsSL https://deb.nodesource.com/setup_20.x | DISTRO=noble bash - 2>/dev/null
   apt-get install -y -qq nodejs
   log "Node.js $(node --version) installed"
 fi

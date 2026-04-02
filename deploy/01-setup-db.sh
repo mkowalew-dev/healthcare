@@ -7,11 +7,12 @@
 set -euo pipefail
 
 # ── CONFIGURATION ──────────────────────────────────────────
-# Fill in these values before running
-DB_NAME="careconnect"
-DB_USER="careconnect"
-DB_PASSWORD="CHANGE_THIS_STRONG_PASSWORD"   # Change this!
-API_PRIVATE_IP="10.0.1.20"                 # Private IP of your API VM
+# Values come from env vars when piped over SSH (see DEPLOYMENT.md).
+# You can also edit these defaults and run the script directly.
+DB_NAME="${DB_NAME:-careconnect}"
+DB_USER="${DB_USER:-careconnect}"
+DB_PASSWORD="${DB_PASSWORD:-CHANGE_THIS_STRONG_PASSWORD}"
+API_PRIVATE_IP="${API_PRIVATE_IP:-10.0.1.20}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -47,13 +48,15 @@ apt-get install -y -qq gnupg curl lsb-release
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | \
   gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg
 
+# Hardcode 'noble' — PGDG doesn't yet publish a 'questing' suite;
+# the noble packages run fine on Ubuntu 25.10.
 echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] \
-  https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+  https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
   > /etc/apt/sources.list.d/pgdg.list
 
 apt-get update -qq
-apt-get install -y -qq postgresql-15 postgresql-client-15
-log "PostgreSQL 15 installed"
+apt-get install -y -qq postgresql-17 postgresql-client-17
+log "PostgreSQL 17 installed"
 
 # ── Start PostgreSQL ─────────────────────────────────────────
 systemctl enable postgresql
@@ -87,8 +90,8 @@ log "Database '${DB_NAME}' and user '${DB_USER}' created"
 # ── Configure PostgreSQL networking ──────────────────────────
 info "Configuring PostgreSQL to accept API VM connections..."
 
-PG_CONF="/etc/postgresql/15/main/postgresql.conf"
-PG_HBA="/etc/postgresql/15/main/pg_hba.conf"
+PG_CONF="/etc/postgresql/17/main/postgresql.conf"
+PG_HBA="/etc/postgresql/17/main/pg_hba.conf"
 
 # Allow PostgreSQL to listen on all interfaces
 # (firewall restricts access — only API VM's port 5432 will be open)
