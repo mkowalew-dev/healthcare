@@ -1,0 +1,127 @@
+# ── Splunk OTel Collector — VM3 (Database / PostgreSQL)
+# Collects: host metrics, PostgreSQL database metrics, PG logs
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  # ── Host metrics ────────────────────────────────────────────
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        exclude_mount_points:
+          mount_points: [/dev, /proc, /sys, /run]
+          match_type: strict
+      network:
+      load:
+
+  # ── PostgreSQL metrics ───────────────────────────────────────
+  # Connects to PG as the monitor user to scrape:
+  #   - Active connections, max connections
+  #   - Transactions committed/rolled back
+  #   - Table/index row counts
+  #   - Cache hit ratio (critical for performance)
+  #   - Replication lag (if applicable)
+  postgresql:
+    endpoint: localhost:5432
+    transport: tcp
+    username: ${env:DB_USER}
+    password: ${env:DB_PASSWORD}
+    databases:
+      - careconnect
+    collection_interval: 30s
+    tls:
+      insecure: true
+
+  # ── PostgreSQL slow query log ────────────────────────────────
+  filelog/postgres:
+    include:
+      - /var/lib/postgresql/15/main/pg_log/*.log
+    include_file_path: true
+    start_at: end
+    multiline:
+      line_start_pattern: '^\d{4}-\d{2}-\d{2}'
+    operators:
+      - type: regex_parser
+        regex: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d+ \w+) \[(?P<pid>\d+)\]: \[(?P<line>\d+-\d+)\] user=(?P<user>[^,]*),db=(?P<database>[^,]*),app=(?P<app>[^,]*),client=(?P<client>[^ ]*) (?P<level>LOG|ERROR|WARNING|FATAL|PANIC|DETAIL|STATEMENT|HINT|CONTEXT):  (?P<message>.*)'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%Y-%m-%d %H:%M:%S.%f %Z'
+        severity:
+          parse_from: attributes.level
+          mapping:
+            fatal: fatal
+            panic: fatal2
+            error: error
+            warning: warn
+            log: info
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    send_batch_size: 256
+    timeout: 10s
+
+  resourcedetection:
+    detectors: [system, env, aws, azure]
+    timeout: 10s
+    override: false
+
+  resource/db:
+    attributes:
+      - key: deployment.environment
+        value: ${env:APP_ENV}
+        action: upsert
+      - key: service.name
+        value: careconnect-db
+        action: upsert
+      - key: host.role
+        value: database
+        action: insert
+      - key: db.system
+        value: postgresql
+        action: insert
+
+exporters:
+  signalfx:
+    access_token: ${env:SPLUNK_ACCESS_TOKEN}
+    realm: ${env:SPLUNK_REALM}
+
+  splunk_hec/o11y:
+    token: ${env:SPLUNK_ACCESS_TOKEN}
+    endpoint: https://ingest.${env:SPLUNK_REALM}.signalfx.com/v1/log
+    source: postgresql
+    sourcetype: postgresql:log
+    index: careconnect
+    timeout: 10s
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics, postgresql]
+      processors: [memory_limiter, resourcedetection, resource/db, batch]
+      exporters: [signalfx]
+    logs:
+      receivers: [filelog/postgres]
+      processors: [memory_limiter, resourcedetection, resource/db, batch]
+      exporters: [splunk_hec/o11y]
+
+  telemetry:
+    logs:
+      level: warn

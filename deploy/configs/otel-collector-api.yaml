@@ -1,0 +1,161 @@
+# ── Splunk OTel Collector — VM2 (API / Node.js)
+# Collects: host metrics, Node.js APM traces (OTLP), API JSON logs
+# The Node.js app (@splunk/otel) sends traces to this collector
+# via OTLP rather than directly to Splunk, giving us local buffering.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  zpages:
+    endpoint: 127.0.0.1:55679
+
+receivers:
+  # ── OTLP — receives traces from Node.js @splunk/otel ───────
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # ── Host metrics ────────────────────────────────────────────
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        exclude_mount_points:
+          mount_points: [/dev, /proc, /sys, /run]
+          match_type: strict
+      network:
+      load:
+      processes:
+
+  # ── Node.js API logs (structured JSON from Winston) ────────
+  filelog/api:
+    include:
+      - /var/log/careconnect/api-out.log
+      - /var/log/careconnect/api-error.log
+    include_file_path: true
+    start_at: end
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.timestamp
+          layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+        severity:
+          parse_from: attributes.level
+          mapping:
+            error: error
+            warn: warn
+            info: info
+            debug: debug
+      - type: move
+        from: attributes.trace_id
+        to: attributes["trace_id"]
+      - type: move
+        from: attributes.span_id
+        to: attributes["span_id"]
+
+  # ── PM2 process metrics via prometheus endpoint ─────────────
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: pm2
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['localhost:9209']
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              target_label: service
+              replacement: careconnect-api
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 384
+    spike_limit_mib: 96
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  resourcedetection:
+    detectors: [system, env, aws, azure]
+    timeout: 10s
+    override: false
+
+  resource/api:
+    attributes:
+      - key: deployment.environment
+        value: ${env:APP_ENV}
+        action: upsert
+      - key: service.name
+        value: careconnect-api
+        action: upsert
+      - key: host.role
+        value: api
+        action: insert
+
+  # ── Tail-based sampling — keep 100% of error traces ────────
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    expected_new_traces_per_sec: 100
+    policies:
+      - name: errors-policy
+        type: status_code
+        status_code: {status_codes: [ERROR]}
+      - name: slow-traces-policy
+        type: latency
+        latency: {threshold_ms: 500}
+      - name: sample-rest
+        type: probabilistic
+        probabilistic: {sampling_percentage: 20}
+
+exporters:
+  otlphttp/splunk_apm:
+    endpoint: https://ingest.${env:SPLUNK_REALM}.signalfx.com/v2/trace/otlpproto
+    headers:
+      X-SF-Token: ${env:SPLUNK_ACCESS_TOKEN}
+
+  signalfx:
+    access_token: ${env:SPLUNK_ACCESS_TOKEN}
+    realm: ${env:SPLUNK_REALM}
+
+  splunk_hec/o11y:
+    token: ${env:SPLUNK_ACCESS_TOKEN}
+    endpoint: https://ingest.${env:SPLUNK_REALM}.signalfx.com/v1/log
+    source: careconnect-api
+    sourcetype: careconnect:json
+    index: careconnect
+    max_connections: 20
+    timeout: 10s
+
+service:
+  extensions: [health_check, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, resource/api, tail_sampling, batch]
+      exporters: [otlphttp/splunk_apm]
+    metrics:
+      receivers: [hostmetrics, prometheus]
+      processors: [memory_limiter, resourcedetection, resource/api, batch]
+      exporters: [signalfx]
+    logs:
+      receivers: [filelog/api]
+      processors: [memory_limiter, resourcedetection, resource/api, batch]
+      exporters: [splunk_hec/o11y]
+
+  telemetry:
+    logs:
+      level: warn

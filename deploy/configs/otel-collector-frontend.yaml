@@ -1,0 +1,83 @@
+# ── Splunk OTel Collector — VM1 (Frontend)
+# Collects: host metrics only
+# Note: This VM serves static files via `serve` (no Nginx).
+# Access logs come from the ALB — forward ALB access logs from
+# S3 (AWS) or Azure Storage to Splunk separately if needed.
+# Exports to: Splunk Observability Cloud
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  zpages:
+    endpoint: 127.0.0.1:55679
+
+receivers:
+  # ── Host metrics (CPU, memory, disk, network) ──────────────
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        exclude_mount_points:
+          mount_points: [/dev, /proc, /sys, /run]
+          match_type: strict
+      network:
+      load:
+      processes:
+
+processors:
+  # ── Memory protection ───────────────────────────────────────
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  # ── Batch for efficiency ────────────────────────────────────
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  # ── Auto-detect host/cloud resource attributes ──────────────
+  resourcedetection:
+    detectors: [system, env, aws, azure]
+    timeout: 10s
+    override: false
+
+  # ── Add service-level resource attributes ──────────────────
+  resource/frontend:
+    attributes:
+      - key: deployment.environment
+        value: ${env:APP_ENV}
+        action: upsert
+      - key: service.name
+        value: careconnect-frontend
+        action: upsert
+      - key: host.role
+        value: frontend
+        action: insert
+
+exporters:
+  # ── Metrics → Splunk Infrastructure Monitoring ──────────────
+  signalfx:
+    access_token: ${env:SPLUNK_ACCESS_TOKEN}
+    realm: ${env:SPLUNK_REALM}
+
+service:
+  extensions: [health_check, zpages]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [memory_limiter, resourcedetection, resource/frontend, batch]
+      exporters: [signalfx]
+
+  telemetry:
+    logs:
+      level: warn

@@ -1,0 +1,235 @@
+#!/bin/bash
+# ============================================================
+# CareConnect EHR — API VM Setup
+# Run this script on: VM2 (Backend API)
+# OS: Ubuntu 22.04 LTS
+# ============================================================
+set -euo pipefail
+
+# ── CONFIGURATION ──────────────────────────────────────────
+# Fill in these values before running
+DB_HOST="careconnect-db.example.com"      # DB VM hostname or private IP
+DB_NAME="careconnect"
+DB_USER="careconnect"
+DB_PASSWORD="CHANGE_THIS_STRONG_PASSWORD" # Must match 01-setup-db.sh
+JWT_SECRET="CHANGE_THIS_JWT_SECRET"       # Generate: openssl rand -hex 32
+FRONTEND_PRIVATE_IP="10.0.1.10"          # Private IP of Frontend VM
+APP_DIR="/opt/careconnect/api"
+APP_USER="careconnect"
+PORT=3001
+
+# AI Assistant — get from console.anthropic.com → API Keys
+# Leave blank to disable the AI Assistant (app still runs without it)
+ANTHROPIC_API_KEY=""
+# ───────────────────────────────────────────────────────────
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log()  { echo -e "${GREEN}[$(date '+%H:%M:%S')] ✓ $1${NC}"; }
+warn() { echo -e "${YELLOW}[$(date '+%H:%M:%S')] ⚠ $1${NC}"; }
+err()  { echo -e "${RED}[$(date '+%H:%M:%S')] ✗ $1${NC}"; exit 1; }
+info() { echo -e "${BLUE}[$(date '+%H:%M:%S')] → $1${NC}"; }
+
+# ── Preflight checks ─────────────────────────────────────────
+[[ $EUID -ne 0 ]] && err "Run as root: sudo bash 02-setup-api.sh"
+[[ "$DB_PASSWORD" == "CHANGE_THIS_STRONG_PASSWORD" ]] && \
+  err "Set DB_PASSWORD in the script before running"
+[[ "$JWT_SECRET" == "CHANGE_THIS_JWT_SECRET" ]] && \
+  err "Set JWT_SECRET in the script before running"
+[[ ! -d "$(dirname "$0")/../backend" ]] && \
+  err "Run this script from the healthcare/deploy/ directory"
+
+info "Starting CareConnect API VM setup..."
+echo ""
+
+# ── System update ─────────────────────────────────────────────
+info "Updating system packages..."
+apt-get update -qq
+apt-get upgrade -y -qq
+apt-get install -y -qq curl gnupg lsb-release postgresql-client-15 ufw
+log "System updated"
+
+# ── Install Node.js 20 ────────────────────────────────────────
+if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
+  info "Installing Node.js 20..."
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - 2>/dev/null
+  apt-get install -y -qq nodejs
+  log "Node.js $(node --version) installed"
+else
+  log "Node.js $(node --version) already installed"
+fi
+
+# ── Install PM2 ───────────────────────────────────────────────
+info "Installing PM2 process manager..."
+npm install -g pm2 --quiet
+log "PM2 $(pm2 --version) installed"
+
+# ── Create app user ───────────────────────────────────────────
+if ! id "${APP_USER}" &>/dev/null; then
+  info "Creating application user '${APP_USER}'..."
+  useradd --system --shell /bin/bash --home "${APP_DIR}" --create-home "${APP_USER}"
+  log "User '${APP_USER}' created"
+fi
+
+# ── Deploy application files ──────────────────────────────────
+info "Deploying backend application..."
+mkdir -p "${APP_DIR}"
+
+# Copy backend source from wherever this script is running
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_SRC="${SCRIPT_DIR}/../backend"
+
+rsync -a --delete \
+  --exclude 'node_modules' \
+  --exclude '.env' \
+  "${BACKEND_SRC}/" "${APP_DIR}/"
+
+log "Application files deployed to ${APP_DIR}"
+
+# ── Write environment file ────────────────────────────────────
+info "Writing environment configuration..."
+cat > "${APP_DIR}/.env" <<EOF
+NODE_ENV=production
+PORT=${PORT}
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}
+JWT_SECRET=${JWT_SECRET}
+CORS_ORIGIN=http://${HOSTNAME}
+LOG_LEVEL=info
+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+EOF
+chmod 600 "${APP_DIR}/.env"
+log "Environment file written"
+
+# ── Install Node.js dependencies ──────────────────────────────
+info "Installing Node.js dependencies..."
+cd "${APP_DIR}"
+npm install --omit=dev --quiet
+log "Dependencies installed"
+
+# ── Verify database connectivity ──────────────────────────────
+info "Verifying database connection..."
+PGPASSWORD="${DB_PASSWORD}" psql \
+  "postgresql://${DB_USER}@${DB_HOST}:5432/${DB_NAME}" \
+  -c "SELECT 1;" > /dev/null 2>&1 && \
+  log "Database connection successful" || \
+  err "Cannot connect to database at ${DB_HOST}. Check: 1) DB VM is running, 2) firewall rules allow API VM's IP, 3) credentials are correct"
+
+# ── Run database seed ─────────────────────────────────────────
+info "Running database schema and seed..."
+cd "${APP_DIR}"
+node src/db/seed.js && log "Database seeded successfully" || \
+  warn "Seed may have failed — check if DB was already seeded (safe to ignore)"
+
+# ── Fix file ownership ────────────────────────────────────────
+chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+
+# ── Configure PM2 ────────────────────────────────────────────
+info "Configuring PM2..."
+cat > "${APP_DIR}/ecosystem.config.js" <<EOF
+module.exports = {
+  apps: [{
+    name: 'careconnect-api',
+    script: 'src/index.js',
+    cwd: '${APP_DIR}',
+    instances: 2,
+    exec_mode: 'cluster',
+    env: {
+      NODE_ENV: 'production',
+    },
+    env_file: '${APP_DIR}/.env',
+    max_memory_restart: '512M',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    error_file: '/var/log/careconnect/api-error.log',
+    out_file: '/var/log/careconnect/api-out.log',
+    merge_logs: true,
+    restart_delay: 3000,
+    max_restarts: 10,
+  }]
+};
+EOF
+
+# ── Create log directory ──────────────────────────────────────
+mkdir -p /var/log/careconnect
+chown "${APP_USER}:${APP_USER}" /var/log/careconnect
+
+# ── Write systemd service for PM2 ─────────────────────────────
+info "Configuring systemd service..."
+cat > /etc/systemd/system/careconnect-api.service <<EOF
+[Unit]
+Description=CareConnect EHR API (PM2)
+Documentation=https://pm2.keymetrics.io
+After=network.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=${APP_USER}
+WorkingDirectory=${APP_DIR}
+ExecStart=/usr/bin/pm2 start ${APP_DIR}/ecosystem.config.js --env production
+ExecReload=/usr/bin/pm2 reload careconnect-api
+ExecStop=/usr/bin/pm2 stop careconnect-api
+Restart=on-failure
+RestartSec=10s
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=careconnect-api
+EnvironmentFile=${APP_DIR}/.env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Start PM2 as the app user first to initialize
+sudo -u "${APP_USER}" pm2 start "${APP_DIR}/ecosystem.config.js" \
+  --env production 2>/dev/null || true
+sudo -u "${APP_USER}" pm2 save 2>/dev/null || true
+
+systemctl daemon-reload
+systemctl enable careconnect-api
+systemctl start careconnect-api
+log "PM2 service configured and started"
+
+# ── Firewall (UFW) ─────────────────────────────────────────────
+info "Configuring firewall..."
+ufw --force reset
+ufw default deny incoming
+ufw default allow outgoing
+
+# SSH from anywhere (restrict to bastion IP in production)
+ufw allow 22/tcp comment 'SSH'
+
+# API port — only from Frontend VM
+ufw allow from "${FRONTEND_PRIVATE_IP}" to any port ${PORT} comment 'API - Frontend VM only'
+
+ufw --force enable
+log "Firewall configured"
+
+# ── Health check ──────────────────────────────────────────────
+info "Verifying API is responding..."
+sleep 3
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/health" || echo "000")
+if [[ "$HTTP_STATUS" == "200" ]]; then
+  log "API health check passed (HTTP 200)"
+else
+  warn "Health check returned HTTP ${HTTP_STATUS} — service may still be starting"
+fi
+
+echo ""
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  ✓ API VM setup complete!${NC}"
+echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+echo ""
+echo "  Host:         $(hostname)"
+echo "  API port:     ${PORT}"
+echo "  App dir:      ${APP_DIR}"
+echo "  Logs:         /var/log/careconnect/"
+echo "  PM2 status:   sudo -u ${APP_USER} pm2 status"
+echo ""
+echo "  Health check: curl http://$(hostname):${PORT}/health"
+echo ""
+echo "  Next: Run 03-setup-frontend.sh on the Frontend VM"
+echo ""
