@@ -58,7 +58,8 @@ export function AiChat() {
 
     try {
       const token = localStorage.getItem('cc_token');
-      const response = await fetch('/api/ai/chat', {
+      const apiBase = import.meta.env.VITE_API_URL ?? '';
+      const response = await fetch(`${apiBase}/api/ai/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

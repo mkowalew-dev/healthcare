@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.8.0",
     "@splunk/otel-web": "^0.18.0",
     "axios": "^1.6.8",
     "clsx": "^2.1.0",

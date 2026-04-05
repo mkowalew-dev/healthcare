@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'">
+  <title>CareConnect EHR</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1D4289;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+      color: white;
+      user-select: none;
+    }
+
+    .logo {
+      margin-bottom: 20px;
+    }
+
+    .title {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-top: 5px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 2.5px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #049FD9;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      margin-top: 36px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #status {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.35);
+      margin-top: 14px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Cisco mark — matches the SVG in Layout.tsx and Login.tsx -->
+  <div class="logo">
+    <svg width="56" height="35" viewBox="0 0 40 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="0"    y="8" width="6" height="9"  rx="1" fill="white" opacity="0.8"/>
+      <rect x="8.5"  y="4" width="6" height="17" rx="1" fill="white"/>
+      <rect x="17"   y="0" width="6" height="25" rx="1" fill="white"/>
+      <rect x="25.5" y="4" width="6" height="17" rx="1" fill="white"/>
+      <rect x="34"   y="8" width="6" height="9"  rx="1" fill="white" opacity="0.8"/>
+    </svg>
+  </div>
+
+  <div class="title">CareConnect</div>
+  <div class="subtitle">EHR Platform</div>
+
+  <div class="spinner" id="spinner"></div>
+  <div id="status">Connecting…</div>
+</body>
+</html>

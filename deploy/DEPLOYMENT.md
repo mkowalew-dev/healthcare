@@ -67,7 +67,7 @@ Fill in your actual hostnames and a strong password:
 
 ```bash
 # ALB DNS name — this is your public URL
-FRONTEND_HOST=careconnect-alb-123456.us-east-1.elb.amazonaws.com   # AWS ALB DNS
+FRONTEND_HOST=careconnect.retaildemo.web  # AWS ALB DNS
 # or for Azure:
 # FRONTEND_HOST=careconnect-appgw-pip.eastus.cloudapp.azure.com
 
@@ -95,7 +95,7 @@ Values are sourced from the `config.env` you filled in during Step 0.
 
 ```bash
 source deploy/config.env
-ssh ubuntu@<VM3-IP> "sudo env \
+ssh cisco@192.168.11.12 "sudo env \
   DB_NAME='$DB_NAME' DB_USER='$DB_USER' \
   DB_PASSWORD='$DB_PASSWORD' API_PRIVATE_IP='$API_PRIVATE_IP' \
   bash -s" < deploy/01-setup-db.sh
@@ -126,35 +126,25 @@ sudo -u postgres psql -c "\l"    # should show careconnect database
 
 ## Step 2 — Set up VM2 (API)
 
-### 2a. Copy the codebase and deploy scripts to VM2
+Run these two commands from your **local machine**.
+Values are sourced from the `config.env` you filled in during Step 0.
 
 ```bash
-# From your local machine
-scp -r healthcare ubuntu@<VM2-IP>:~/careconnect
-```
+source deploy/config.env
 
-### 2b. Edit the script with your values
+# 1. Sync the backend source to VM2 (only changed files are transferred)
+rsync -avz --delete --exclude 'node_modules' --exclude '.env' \
+  backend/. cisco@192.168.11.11:~/careconnect-backend/
 
-```bash
-ssh ubuntu@<VM2-IP>
-nano ~/careconnect/deploy/02-setup-api.sh
-```
-
-Update the CONFIGURATION section:
-```bash
-DB_HOST="10.0.1.30"            # VM3 private IP or hostname
-DB_NAME="careconnect"
-DB_USER="careconnect"
-DB_PASSWORD="your-strong-password-here"    # Must match Step 1
-JWT_SECRET="your-jwt-secret-here"
-FRONTEND_PRIVATE_IP="10.0.1.10"           # VM1 private IP
-```
-
-### 2c. Run the setup script
-
-```bash
-cd ~/careconnect/deploy
-sudo bash 02-setup-api.sh
+# 2. Pipe the setup script over SSH with env vars injected inline
+ssh cisco@192.168.11.11 "sudo env \
+  DB_HOST='$DB_PRIVATE_IP' DB_NAME='$DB_NAME' DB_USER='$DB_USER' \
+  DB_PASSWORD='$DB_PASSWORD' JWT_SECRET='$JWT_SECRET' \
+  FRONTEND_PRIVATE_IP='$FRONTEND_PRIVATE_IP' FRONTEND_HOST='$FRONTEND_HOST' \
+  SPLUNK_ACCESS_TOKEN='$SPLUNK_ACCESS_TOKEN' SPLUNK_REALM='$SPLUNK_REALM' \
+  ANTHROPIC_API_KEY='$ANTHROPIC_API_KEY' \
+  BACKEND_SRC='/home/cisco/careconnect-backend' \
+  bash -s" < deploy/02-setup-api.sh
 ```
 
 Expected output:
@@ -200,40 +190,29 @@ Expected health response:
 ## Step 3 — Set up VM1 (Frontend)
 
 VM1 serves the static React build using `serve` (a lightweight static file server).
-There is no Nginx and no reverse proxy on this VM — the ALB handles all routing.
+There is no reverse proxy on this VM — the ALB handles all routing.
 
-### 3a. Copy the codebase and deploy scripts to VM1
-
-```bash
-# From your local machine
-scp -r healthcare ubuntu@<VM1-IP>:~/careconnect
-```
-
-### 3b. Edit the script with your values
+Run these two commands from your **local machine**.
+Values are sourced from the `config.env` you filled in during Step 0.
 
 ```bash
-ssh ubuntu@<VM1-IP>
-nano ~/careconnect/deploy/03-setup-frontend.sh
-```
+source deploy/config.env
 
-Update the CONFIGURATION section:
-```bash
-FRONTEND_HOST="careconnect-alb-123456.us-east-1.elb.amazonaws.com"  # For display only
+# 1. Sync the frontend source to VM1 (only changed files are transferred)
+rsync -avz --delete --exclude 'node_modules' --exclude 'dist' \
+  frontend/. cisco@192.168.11.10:~/careconnect-frontend/
 
-# Bakes Splunk RUM into the React bundle at build time
-SPLUNK_RUM_TOKEN="your-rum-token-here"
-SPLUNK_REALM="us1"
-APP_ENV="production"
+# 2. Pipe the setup script over SSH with env vars injected inline
+ssh cisco@192.168.11.10 "sudo env \
+  FRONTEND_HOST='$FRONTEND_HOST' \
+  API_URL='https://$API_HOST' \
+  SPLUNK_RUM_TOKEN='$SPLUNK_RUM_TOKEN' SPLUNK_REALM='$SPLUNK_REALM' \
+  APP_ENV='$APP_ENV' \
+  FRONTEND_SRC='/home/cisco/careconnect-frontend' \
+  bash -s" < deploy/03-setup-frontend.sh
 ```
 
 Note: `API_HOST` is not needed here. The React app makes relative `/api/*` calls; the ALB routes them to VM2.
-
-### 3c. Run the setup script
-
-```bash
-cd ~/careconnect/deploy
-sudo bash 03-setup-frontend.sh
-```
 
 This takes ~2-3 minutes (npm install + React build). Expected output:
 ```

@@ -7,20 +7,27 @@
 set -euo pipefail
 
 # ── CONFIGURATION ──────────────────────────────────────────
-# Fill in these values before running
-DB_HOST="careconnect-db.example.com"      # DB VM hostname or private IP
-DB_NAME="careconnect"
-DB_USER="careconnect"
-DB_PASSWORD="CHANGE_THIS_STRONG_PASSWORD" # Must match 01-setup-db.sh
-JWT_SECRET="CHANGE_THIS_JWT_SECRET"       # Generate: openssl rand -hex 32
-FRONTEND_PRIVATE_IP="10.0.1.10"          # Private IP of Frontend VM
-APP_DIR="/opt/careconnect/api"
-APP_USER="careconnect"
-PORT=3001
+# Values come from env vars when piped over SSH (see DEPLOYMENT.md).
+# You can also edit these defaults and run the script directly.
+DB_HOST="${DB_HOST:-careconnect-db.example.com}"
+DB_NAME="${DB_NAME:-careconnect}"
+DB_USER="${DB_USER:-careconnect}"
+DB_PASSWORD="${DB_PASSWORD:-CHANGE_THIS_STRONG_PASSWORD}"
+JWT_SECRET="${JWT_SECRET:-CHANGE_THIS_JWT_SECRET}"
+FRONTEND_PRIVATE_IP="${FRONTEND_PRIVATE_IP:-10.0.1.10}"
+FRONTEND_HOST="${FRONTEND_HOST:-}"   # Public hostname of VM1 — used for CORS
+SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN:-}"
+SPLUNK_REALM="${SPLUNK_REALM:-us1}"
+APP_DIR="${APP_DIR:-/opt/careconnect/api}"
+APP_USER="${APP_USER:-careconnect}"
+PORT="${PORT:-3001}"
+
+# Path to the backend source on the remote VM (set via env var when SSH-piped)
+BACKEND_SRC="${BACKEND_SRC:-}"
 
 # AI Assistant — get from console.anthropic.com → API Keys
 # Leave blank to disable the AI Assistant (app still runs without it)
-ANTHROPIC_API_KEY=""
+ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -37,11 +44,20 @@ info() { echo -e "${BLUE}[$(date '+%H:%M:%S')] → $1${NC}"; }
 # ── Preflight checks ─────────────────────────────────────────
 [[ $EUID -ne 0 ]] && err "Run as root: sudo bash 02-setup-api.sh"
 [[ "$DB_PASSWORD" == "CHANGE_THIS_STRONG_PASSWORD" ]] && \
-  err "Set DB_PASSWORD in the script before running"
+  err "Set DB_PASSWORD before running (env var or edit script)"
 [[ "$JWT_SECRET" == "CHANGE_THIS_JWT_SECRET" ]] && \
-  err "Set JWT_SECRET in the script before running"
-[[ ! -d "$(dirname "$0")/../backend" ]] && \
-  err "Run this script from the healthcare/deploy/ directory"
+  err "Set JWT_SECRET before running (env var or edit script)"
+
+# Resolve backend source: env var takes precedence, then relative path
+if [[ -z "$BACKEND_SRC" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+  if [[ -n "$SCRIPT_DIR" && -d "$SCRIPT_DIR/../backend" ]]; then
+    BACKEND_SRC="$(realpath "$SCRIPT_DIR/../backend")"
+  else
+    err "Cannot locate backend source. Set BACKEND_SRC env var to the path of the backend directory on this VM."
+  fi
+fi
+[[ ! -d "$BACKEND_SRC" ]] && err "BACKEND_SRC '$BACKEND_SRC' does not exist"
 
 info "Starting CareConnect API VM setup..."
 echo ""
@@ -50,7 +66,20 @@ echo ""
 info "Updating system packages..."
 apt-get update -qq
 apt-get upgrade -y -qq
-apt-get install -y -qq curl gnupg lsb-release postgresql-client-17 ufw
+apt-get install -y -qq curl gnupg lsb-release ufw
+
+# Add the official PostgreSQL apt repository if postgresql-client-17 isn't available
+if ! apt-cache show postgresql-client-17 &>/dev/null; then
+  info "Adding PostgreSQL apt repository..."
+  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+  echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] \
+https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list
+  apt-get update -qq
+fi
+
+apt-get install -y -qq postgresql-client-17
 log "System updated"
 
 # ── Install Node.js 20 ────────────────────────────────────────
@@ -80,10 +109,6 @@ fi
 info "Deploying backend application..."
 mkdir -p "${APP_DIR}"
 
-# Copy backend source from wherever this script is running
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_SRC="${SCRIPT_DIR}/../backend"
-
 rsync -a --delete \
   --exclude 'node_modules' \
   --exclude '.env' \
@@ -98,9 +123,11 @@ NODE_ENV=production
 PORT=${PORT}
 DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}
 JWT_SECRET=${JWT_SECRET}
-CORS_ORIGIN=http://${HOSTNAME}
+CORS_ORIGIN=https://${FRONTEND_HOST:-$HOSTNAME}
 LOG_LEVEL=info
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN}
+SPLUNK_REALM=${SPLUNK_REALM}
 EOF
 chmod 600 "${APP_DIR}/.env"
 log "Environment file written"
@@ -167,27 +194,22 @@ After=network.target postgresql.service
 Wants=network-online.target
 
 [Service]
-Type=forking
+Type=simple
 User=${APP_USER}
 WorkingDirectory=${APP_DIR}
-ExecStart=/usr/bin/pm2 start ${APP_DIR}/ecosystem.config.js --env production
+ExecStart=/usr/bin/pm2-runtime start ${APP_DIR}/ecosystem.config.js --env production
 ExecReload=/usr/bin/pm2 reload careconnect-api
 ExecStop=/usr/bin/pm2 stop careconnect-api
 Restart=on-failure
 RestartSec=10s
-StandardOutput=syslog
-StandardError=syslog
+StandardOutput=journal
+StandardError=journal
 SyslogIdentifier=careconnect-api
 EnvironmentFile=${APP_DIR}/.env
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-# Start PM2 as the app user first to initialize
-sudo -u "${APP_USER}" pm2 start "${APP_DIR}/ecosystem.config.js" \
-  --env production 2>/dev/null || true
-sudo -u "${APP_USER}" pm2 save 2>/dev/null || true
 
 systemctl daemon-reload
 systemctl enable careconnect-api
@@ -203,8 +225,18 @@ ufw default allow outgoing
 # SSH from anywhere (restrict to bastion IP in production)
 ufw allow 22/tcp comment 'SSH'
 
-# API port — only from Frontend VM
+# API port — Frontend VM private IP
 ufw allow from "${FRONTEND_PRIVATE_IP}" to any port ${PORT} comment 'API - Frontend VM only'
+
+# API port — Cloudflare IP ranges (for Cloudflare Tunnel / proxy)
+info "Adding Cloudflare IP ranges to firewall..."
+for ip in $(curl -sf https://www.cloudflare.com/ips-v4); do
+  ufw allow from "$ip" to any port ${PORT} comment 'Cloudflare' 2>/dev/null
+done
+for ip in $(curl -sf https://www.cloudflare.com/ips-v6); do
+  ufw allow from "$ip" to any port ${PORT} comment 'Cloudflare' 2>/dev/null
+done
+log "Cloudflare IP ranges added"
 
 ufw --force enable
 log "Firewall configured"

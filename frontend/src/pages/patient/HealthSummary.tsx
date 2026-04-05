@@ -23,14 +23,11 @@ export default function HealthSummary() {
   useEffect(() => {
     if (!patient?.id) return;
     Promise.all([
-      patientsApi.get(patient.id).catch(() => null),
+      patientsApi.me(),
       vitalsApi.list(),
     ]).then(([pt, vs]) => {
       setPatientData(pt?.data);
       setVitals(vs.data);
-    }).catch(() => {
-      // Patient can't access /api/patients/:id directly - use profile data
-      setPatientData(null);
     }).finally(() => setLoading(false));
   }, [patient]);
 

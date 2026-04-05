@@ -11,10 +11,15 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(o => o.trim());
+const corsOptions = {
+  origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
   credentials: true,
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'traceparent', 'tracestate'],
+  exposedHeaders: ['traceparent', 'tracestate'],
+};
+app.options('*', cors(corsOptions)); // explicit preflight for all routes
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
 

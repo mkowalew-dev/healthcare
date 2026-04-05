@@ -13,16 +13,25 @@
 set -euo pipefail
 
 # ── CONFIGURATION ──────────────────────────────────────────
-# Fill in these values before running
-FRONTEND_HOST="careconnect-web.example.com"  # This VM's public hostname/IP (for display only)
-WEB_ROOT="/var/www/careconnect"
-SERVE_PORT=80
+# Values come from env vars when piped over SSH (see DEPLOYMENT.md).
+# You can also edit these defaults and run the script directly.
+FRONTEND_HOST="${FRONTEND_HOST:-careconnect-web.example.com}"
+WEB_ROOT="${WEB_ROOT:-/var/www/careconnect}"
+SERVE_PORT="${SERVE_PORT:-80}"
+
+# Path to the frontend source on the remote VM (set via env var when SSH-piped)
+FRONTEND_SRC="${FRONTEND_SRC:-}"
+
+# API base URL baked into the React bundle at build time.
+# - With ALB: leave empty — ALB routes /api/* to VM2, relative URLs work
+# - Without ALB: set to the API VM's URL, e.g. http://192.168.11.11:3001
+API_URL="${API_URL:-}"
 
 # Splunk Observability Cloud — RUM (Real User Monitoring)
 # Get the RUM token from: Splunk O11y Cloud → Settings → Access Tokens (type: RUM)
-SPLUNK_RUM_TOKEN="CHANGE_THIS_RUM_TOKEN"
-SPLUNK_REALM="us1"   # Match your O11y Cloud realm (us0, us1, eu0, ap0, etc.)
-APP_ENV="production"
+SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN:-CHANGE_THIS_RUM_TOKEN}"
+SPLUNK_REALM="${SPLUNK_REALM:-us1}"
+APP_ENV="${APP_ENV:-production}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -38,10 +47,19 @@ info() { echo -e "${BLUE}[$(date '+%H:%M:%S')] → $1${NC}"; }
 
 # ── Preflight checks ─────────────────────────────────────────
 [[ $EUID -ne 0 ]] && err "Run as root: sudo bash 03-setup-frontend.sh"
-[[ ! -d "$(dirname "$0")/../frontend" ]] && \
-  err "Run this script from the healthcare/deploy/ directory"
 [[ "$SPLUNK_RUM_TOKEN" == "CHANGE_THIS_RUM_TOKEN" ]] && \
   warn "SPLUNK_RUM_TOKEN not set — RUM will be disabled in this build"
+
+# Resolve frontend source: env var takes precedence, then relative path
+if [[ -z "$FRONTEND_SRC" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+  if [[ -n "$SCRIPT_DIR" && -d "$SCRIPT_DIR/../frontend" ]]; then
+    FRONTEND_SRC="$(realpath "$SCRIPT_DIR/../frontend")"
+  else
+    err "Cannot locate frontend source. Set FRONTEND_SRC env var to the path of the frontend directory on this VM."
+  fi
+fi
+[[ ! -d "$FRONTEND_SRC" ]] && err "FRONTEND_SRC '$FRONTEND_SRC' does not exist"
 
 info "Starting CareConnect frontend VM setup..."
 echo ""
@@ -63,8 +81,6 @@ if ! command -v node &>/dev/null || [[ "$(node --version | cut -d. -f1 | tr -d v
 fi
 
 # ── Install `serve` — lightweight static file server ─────────
-# `serve` is a production-grade static server from Vercel.
-# The ALB handles all routing; this VM only serves static files.
 if ! command -v serve &>/dev/null; then
   info "Installing serve (static file server)..."
   npm install -g serve --quiet
@@ -74,21 +90,20 @@ fi
 # ── Build the React application ───────────────────────────────
 info "Building React frontend..."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_SRC="${SCRIPT_DIR}/../frontend"
 BUILD_TMP="/tmp/careconnect-frontend-build"
 
-# Copy frontend source to a temp build dir
-cp -r "${FRONTEND_SRC}" "${BUILD_TMP}"
+# Wipe any leftover build dir from a previous run
+rm -rf "${BUILD_TMP}"
+
+# Copy frontend source to a temp build dir, excluding node_modules
+rsync -a --exclude 'node_modules' "${FRONTEND_SRC}/" "${BUILD_TMP}/"
 cd "${BUILD_TMP}"
 
 # Install all dependencies (including devDeps needed for build)
 npm install --quiet
 
-# Build with VITE_API_URL empty — the ALB routes /api/* to the API VM,
-# so relative paths work correctly from the browser's perspective.
 # Splunk RUM vars are baked into the bundle at build time.
-VITE_API_URL="" \
+VITE_API_URL="${API_URL}" \
 VITE_SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN}" \
 VITE_SPLUNK_REALM="${SPLUNK_REALM}" \
 VITE_APP_ENV="${APP_ENV}" \
@@ -101,11 +116,9 @@ info "Deploying to web root..."
 mkdir -p "${WEB_ROOT}"
 rsync -a --delete "${BUILD_TMP}/dist/" "${WEB_ROOT}/"
 
-# `serve` runs as root from systemd; set ownership to root (it reads, not writes)
 chmod -R 755 "${WEB_ROOT}"
 log "Files deployed to ${WEB_ROOT}"
 
-# Clean up build dir
 rm -rf "${BUILD_TMP}"
 
 # ── Create systemd service for `serve` ───────────────────────
@@ -146,16 +159,13 @@ else
 fi
 
 # ── Firewall (UFW) ─────────────────────────────────────────────
-# VM1 only needs to accept HTTP from the ALB.
-# The ALB security group / NSG is the actual internet-facing control.
-# UFW here is a defence-in-depth measure.
 info "Configuring firewall..."
 ufw --force reset
 ufw default deny incoming
 ufw default allow outgoing
 
-ufw allow 22/tcp   comment 'SSH'
-ufw allow 80/tcp   comment 'HTTP - ALB health checks and traffic'
+ufw allow 22/tcp  comment 'SSH'
+ufw allow 80/tcp  comment 'HTTP - ALB health checks and traffic'
 
 ufw --force enable
 log "Firewall configured (22, 80 open)"

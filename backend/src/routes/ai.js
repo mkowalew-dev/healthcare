@@ -345,7 +345,12 @@ router.post('/chat', authenticate, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable Nginx buffering
+  res.setHeader('Transfer-Encoding', 'chunked');
   res.flushHeaders();
+
+  // Send a keep-alive comment every 15s to prevent Cloudflare's 100s timeout
+  const keepAlive = setInterval(() => res.write(': keep-alive\n\n'), 15000);
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
@@ -422,6 +427,8 @@ router.post('/chat', authenticate, async (req, res) => {
   } catch (err) {
     logger.error('AI chat error', { error: err.message, userId: req.user.id });
     send({ t: 'error', m: 'An error occurred. Please try again.' });
+  } finally {
+    clearInterval(keepAlive);
   }
 
   res.end();

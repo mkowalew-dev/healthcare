@@ -1,13 +1,16 @@
 import axios from 'axios';
+import { context, trace, propagation, ROOT_CONTEXT } from '@opentelemetry/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Empty string = relative URLs (same origin). Works for both local dev
+// (Vite proxy handles /api/*) and production (ALB or serve routes /api/* to VM2).
+const API_URL = import.meta.env.VITE_API_URL ?? '';
 
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach JWT token to every request
+// Attach JWT token and trace context to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('cc_token');
   if (token) {
@@ -15,6 +18,18 @@ api.interceptors.request.use((config) => {
   }
   // Correlation ID for Splunk/ThousandEyes tracing
   config.headers['x-request-id'] = crypto.randomUUID();
+
+  // Propagate W3C trace context (traceparent/tracestate) so browser spans
+  // link to server-side spans in Splunk APM service map
+  try {
+    const carrier: Record<string, string> = {};
+    propagation.inject(context.active() ?? ROOT_CONTEXT, carrier);
+    if (carrier['traceparent']) {
+      config.headers['traceparent'] = carrier['traceparent'];
+      if (carrier['tracestate']) config.headers['tracestate'] = carrier['tracestate'];
+    }
+  } catch { /* RUM not initialized — skip propagation */ }
+
   return config;
 });
 

@@ -40,21 +40,21 @@ apt-get update -qq
 apt-get upgrade -y -qq
 log "System updated"
 
-# ── Install PostgreSQL 15 ────────────────────────────────────
-info "Installing PostgreSQL 15..."
+# ── Install PostgreSQL 17 ────────────────────────────────────
+info "Installing PostgreSQL 17..."
 apt-get install -y -qq gnupg curl lsb-release
 
-# Add PostgreSQL official apt repo
-curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | \
-  gpg --dearmor -o /usr/share/keyrings/postgresql-keyring.gpg
+# Add the official PostgreSQL apt repository (required on Ubuntu 22.04/24.04)
+if ! apt-cache show postgresql-17 &>/dev/null; then
+  info "Adding PostgreSQL apt repository..."
+  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
+  echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] \
+https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list
+  apt-get update -qq
+fi
 
-# Hardcode 'noble' — PGDG doesn't yet publish a 'questing' suite;
-# the noble packages run fine on Ubuntu 25.10.
-echo "deb [signed-by=/usr/share/keyrings/postgresql-keyring.gpg] \
-  https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
-  > /etc/apt/sources.list.d/pgdg.list
-
-apt-get update -qq
 apt-get install -y -qq postgresql-17 postgresql-client-17
 log "PostgreSQL 17 installed"
 

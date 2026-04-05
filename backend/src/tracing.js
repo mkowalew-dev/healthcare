@@ -22,28 +22,22 @@ const ACCESS_TOKEN = process.env.SPLUNK_ACCESS_TOKEN;
 if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   console.log('[tracing] Splunk APM disabled — set SPLUNK_ACCESS_TOKEN or OTEL_EXPORTER_OTLP_ENDPOINT to enable');
 } else {
-  const config = {
-    serviceName: SERVICE_NAME,
-    // Resource attributes appear in every trace, metric, and log
-    // and drive the service map in Splunk APM
-    extraResourceAttributes: {
-      'deployment.environment': process.env.NODE_ENV || 'production',
-      'service.version': '1.0.0',
-      'host.name': require('os').hostname(),
-    },
-  };
+  // Resource attributes are set via env vars (read automatically by the OTel SDK)
+  process.env.OTEL_SERVICE_NAME = SERVICE_NAME;
+  process.env.OTEL_RESOURCE_ATTRIBUTES = [
+    `deployment.environment=${process.env.NODE_ENV || 'production'}`,
+    `service.version=1.0.0`,
+    `host.name=${require('os').hostname()}`,
+  ].join(',');
 
-  // Direct ingest to Splunk O11y Cloud
-  if (ACCESS_TOKEN) {
-    config.accessToken = ACCESS_TOKEN;
-    config.realm = REALM;
+  // Direct ingest: set the OTLP endpoint to Splunk's ingest URL
+  if (ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT = `https://ingest.${REALM}.signalfx.com/v2/trace/otlp`;
+    process.env.OTEL_EXPORTER_OTLP_HEADERS = `X-SF-Token=${ACCESS_TOKEN}`;
   }
 
-  // If OTel Collector endpoint is set, it takes precedence over direct ingest
-  // (OTEL_EXPORTER_OTLP_ENDPOINT is read automatically by the SDK)
-
   try {
-    start(config);
+    start({ serviceName: SERVICE_NAME, accessToken: ACCESS_TOKEN, endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT });
     console.log(`[tracing] Splunk APM started — service=${SERVICE_NAME}, realm=${REALM}`);
   } catch (err) {
     console.error('[tracing] Failed to start Splunk APM:', err.message);

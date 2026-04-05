@@ -21,33 +21,6 @@ if (rumToken) {
     version: '1.0.0',
     deploymentEnvironment: environment,
 
-    // Instrumentation configuration
-    instrumentations: {
-      // Track all fetch() and XHR calls to the API
-      fetch: {
-        enabled: true,
-        // Propagate W3C trace context headers to backend
-        // so browser sessions link to APM server-side spans
-        addRequestsForWhichThereIsNoInteraction: true,
-      },
-      xhr: { enabled: true },
-
-      // Track Single Page App route changes
-      history: { enabled: true },
-
-      // Capture Core Web Vitals (LCP, FID, CLS, TTFB)
-      webvitals: { enabled: true },
-
-      // Track slow tasks (>50ms) that block the main thread
-      longtask: { enabled: true },
-
-      // Track JavaScript errors automatically
-      errors: { enabled: true },
-
-      // Track user clicks, form submissions, etc.
-      interactions: { enabled: true },
-    },
-
     // Attach custom attributes to every span — visible in Splunk APM
     // and RUM dashboards as tag filters
     globalAttributes: {

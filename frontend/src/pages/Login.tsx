@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
-import { Shield, Eye, EyeOff, ChevronRight, Activity } from 'lucide-react';
+import { Shield, Eye, EyeOff, ChevronRight } from 'lucide-react';
 
 const DEMO_ACCOUNTS = [
   {
@@ -115,11 +115,7 @@ export default function Login() {
           </div>
 
           {/* Hero content */}
-          <div className="mb-auto">
-            <div className="inline-flex items-center gap-2 bg-white/10 text-white/80 text-xs px-3 py-1.5 rounded-full mb-6 backdrop-blur-sm">
-              <Activity size={12} />
-              <span>EPIC-Compatible Healthcare Platform</span>
-            </div>
+          <div className="mb-auto text-center">
             <h1 className="text-4xl font-bold text-white leading-tight mb-4">
               Enterprise Healthcare,<br />
               <span className="text-cisco-cyan">Reimagined.</span>
@@ -163,10 +159,8 @@ export default function Login() {
           </div>
 
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-1">Sign in to your account</h2>
-            <p className="text-sm text-gray-500">
-              CareConnect EHR &middot; Secure Patient Portal
-            </p>
+            <h2 className="text-2xl font-bold text-cisco-dark-blue mb-1">CareConnect EHR</h2>
+            <p className="text-sm text-gray-500">Secure Patient Portal</p>
           </div>
 
           {/* Login form */}
@@ -210,10 +204,11 @@ export default function Login() {
               </div>
             )}
 
+            <div className="flex justify-center">
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full justify-center py-2.5 text-base"
+              className="btn-primary px-10 py-2.5 text-base"
             >
               {loading ? (
                 <>
@@ -227,6 +222,7 @@ export default function Login() {
                 </>
               )}
             </button>
+            </div>
           </form>
 
           {/* Divider */}
