@@ -101,7 +101,7 @@ export function Layout() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto" data-testid="sidebar-nav">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
@@ -114,6 +114,7 @@ export function Layout() {
                 )
               }
               title={!sidebarOpen ? item.label : undefined}
+              data-testid={`nav-link-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
             >
               <item.icon size={18} className="flex-shrink-0" />
               {sidebarOpen && <span>{item.label}</span>}
@@ -125,7 +126,8 @@ export function Layout() {
         {sidebarOpen && (
           <div className="px-3 py-3 border-t border-gray-100">
             <div className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
-              onClick={() => setProfileMenuOpen(!profileMenuOpen)}>
+              onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+              data-testid="profile-menu-trigger">
               <div className="w-8 h-8 rounded-full bg-cisco-blue flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                 {displayName?.substring(0, 2).toUpperCase()}
               </div>
@@ -137,10 +139,11 @@ export function Layout() {
             </div>
 
             {profileMenuOpen && (
-              <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+              <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden" data-testid="profile-menu-dropdown">
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                  data-testid="logout-button"
                 >
                   <LogOut size={14} />
                   Sign Out
@@ -158,6 +161,8 @@ export function Layout() {
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+            aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            data-testid="sidebar-toggle"
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
@@ -173,7 +178,12 @@ export function Layout() {
 
           {/* Right side */}
           <div className="flex items-center gap-2">
-            <button className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 relative">
+            <button
+              onClick={() => navigate(user?.role === 'patient' ? '/patient/messages' : user?.role === 'provider' ? '/provider/messages' : '/admin/dashboard')}
+              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 relative"
+              aria-label="Notifications"
+              data-testid="header-notifications-button"
+            >
               <Bell size={18} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-cisco-red rounded-full"></span>
             </button>

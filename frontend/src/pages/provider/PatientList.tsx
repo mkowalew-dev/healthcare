@@ -43,6 +43,7 @@ export default function PatientList() {
           placeholder="Search by name, MRN, phone..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          data-testid="patient-search-input"
         />
       </div>
 
@@ -73,7 +74,7 @@ export default function PatientList() {
                   ? differenceInYears(new Date(), parseISO(p.date_of_birth))
                   : null;
                 return (
-                  <tr key={p.id} className="hover:bg-gray-50">
+                  <tr key={p.id} className="hover:bg-gray-50" data-testid={`patient-row-${p.id}`}>
                     <td>
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full bg-cisco-blue/10 flex items-center justify-center flex-shrink-0">
@@ -107,6 +108,7 @@ export default function PatientList() {
                       <Link
                         to={`/provider/patients/${p.id}`}
                         className="inline-flex items-center gap-1 text-xs text-cisco-blue hover:underline"
+                        data-testid={`patient-chart-link-${p.id}`}
                       >
                         Chart <ChevronRight size={12} />
                       </Link>

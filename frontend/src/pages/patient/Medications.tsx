@@ -47,6 +47,7 @@ export default function Medications() {
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all capitalize ${
               tab === t ? 'bg-white text-cisco-dark-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
+            data-testid={`tab-${t}`}
           >
             {t === 'active' ? 'Active' : 'All Medications'}
           </button>
@@ -61,7 +62,7 @@ export default function Medications() {
           </div>
         ) : (
           filtered.map((med) => (
-            <div key={med.id} className={`card p-5 ${med.status !== 'active' ? 'opacity-70' : ''}`}>
+            <div key={med.id} className={`card p-5 ${med.status !== 'active' ? 'opacity-70' : ''}`} data-testid={`medication-card-${med.id}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex gap-4 flex-1">
                   {/* Pill icon with color */}
@@ -137,6 +138,7 @@ export default function Medications() {
                         onClick={() => handleRefill(med)}
                         disabled={refillRequesting === med.id}
                         className="btn-secondary text-xs"
+                        data-testid={`refill-button-${med.id}`}
                       >
                         <RefreshCw size={13} className={refillRequesting === med.id ? 'animate-spin' : ''} />
                         Request Refill

@@ -93,6 +93,28 @@ router.patch('/:id/read', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/messages/recipients-search?q= - search patients and providers by name
+router.get('/recipients-search', authenticate, async (req, res) => {
+  try {
+    const q = `%${(req.query.q || '').toLowerCase()}%`;
+    const result = await pool.query(`
+      SELECT u.id as user_id, p.first_name, p.last_name, 'provider' as role, p.specialty as detail
+      FROM providers p JOIN users u ON p.user_id = u.id
+      WHERE LOWER(p.first_name || ' ' || p.last_name) LIKE $1
+      UNION ALL
+      SELECT u.id as user_id, pt.first_name, pt.last_name, 'patient' as role, pt.date_of_birth::text as detail
+      FROM patients pt JOIN users u ON pt.user_id = u.id
+      WHERE LOWER(pt.first_name || ' ' || pt.last_name) LIKE $1
+      ORDER BY last_name, first_name
+      LIMIT 20
+    `, [q]);
+    res.json(result.rows);
+  } catch (err) {
+    logger.error('Recipients search error', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /api/messages/providers - get list of providers to message
 router.get('/providers-list', authenticate, async (req, res) => {
   try {

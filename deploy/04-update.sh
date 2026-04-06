@@ -14,11 +14,12 @@ APP_DIR="/opt/careconnect/api"
 APP_USER="careconnect"
 WEB_ROOT="/var/www/careconnect"
 
-# Splunk RUM vars — baked into the React bundle at build time
-# Must match what was used in 03-setup-frontend.sh
-SPLUNK_RUM_TOKEN="CHANGE_THIS_RUM_TOKEN"
-SPLUNK_REALM="us1"
-APP_ENV="production"
+# Splunk RUM vars — baked into the React bundle at build time.
+# Passed in via deploy/deploy.sh from config.env; fall back to placeholders
+# if running this script manually on the VM.
+SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN:-CHANGE_THIS_RUM_TOKEN}"
+SPLUNK_REALM="${SPLUNK_REALM:-us1}"
+APP_ENV="${APP_ENV:-production}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -45,10 +46,17 @@ case "$ROLE" in
     npm install --omit=dev --quiet
     chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 
-    # Zero-downtime reload via PM2 cluster
-    sudo -u "${APP_USER}" pm2 reload careconnect-api --update-env
-    log "API updated and reloaded (zero downtime)"
-    sudo -u "${APP_USER}" pm2 status
+    # Re-seed the database with fresh demo data
+    info "Re-seeding database..."
+    cd "${APP_DIR}"
+    sudo -u "${APP_USER}" node src/db/seed.js && log "Database re-seeded" || err "Seed failed — check logs above"
+
+    # Restart via systemd — matches how 02-setup-api.sh starts the service (pm2-runtime)
+    systemctl restart careconnect-api
+    sleep 2
+    systemctl is-active --quiet careconnect-api && \
+      log "API restarted successfully" || \
+      err "API failed to restart — check: journalctl -u careconnect-api -n 50"
     ;;
 
   frontend)
@@ -56,6 +64,7 @@ case "$ROLE" in
     [[ $EUID -ne 0 ]] && err "Run as root"
 
     BUILD_TMP="/tmp/careconnect-frontend-build"
+    rm -rf "${BUILD_TMP}"
     cp -r "${SCRIPT_DIR}/../frontend" "${BUILD_TMP}"
     cd "${BUILD_TMP}"
     npm install --quiet

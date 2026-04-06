@@ -97,6 +97,7 @@ export default function LabResults() {
             className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors ${
               filter === f ? 'bg-cisco-blue text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
+            data-testid={`filter-${f}`}
           >
             {f === 'all' ? 'All Results' : f}
           </button>
@@ -129,6 +130,7 @@ export default function LabResults() {
                     key={lab.id}
                     className={`cursor-pointer ${lab.status === 'critical' ? 'bg-red-50' : ''}`}
                     onClick={() => setExpanded(expanded === lab.id ? null : lab.id)}
+                    data-testid={`lab-row-${lab.id}`}
                   >
                     <td>
                       <div className="flex items-center gap-2">

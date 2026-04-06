@@ -164,7 +164,7 @@ export default function Login() {
           </div>
 
           {/* Login form */}
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4" data-testid="login-form">
             <div>
               <label className="form-label">Email address</label>
               <input
@@ -174,6 +174,7 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
+                data-testid="login-email-input"
               />
             </div>
 
@@ -187,11 +188,14 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"
+                  data-testid="login-password-input"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass(!showPass)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
+                  data-testid="login-toggle-password"
                 >
                   {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -199,7 +203,7 @@ export default function Login() {
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg">
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg" data-testid="login-error-message">
                 {error}
               </div>
             )}
@@ -209,6 +213,7 @@ export default function Login() {
               type="submit"
               disabled={loading}
               className="btn-primary px-10 py-2.5 text-base"
+              data-testid="login-submit-button"
             >
               {loading ? (
                 <>
@@ -242,6 +247,7 @@ export default function Login() {
                 className="w-full flex items-center gap-3 p-3 border border-gray-200 rounded-lg
                            hover:border-cisco-blue hover:bg-cisco-blue/5 transition-all duration-150
                            text-left disabled:opacity-50 group"
+                data-testid={`demo-login-${account.role.toLowerCase()}`}
               >
                 <div className={`w-9 h-9 rounded-lg ${account.color} flex items-center justify-center flex-shrink-0`}>
                   <span className="text-white text-xs font-bold">{account.role[0]}</span>

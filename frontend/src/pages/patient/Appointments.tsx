@@ -5,7 +5,7 @@ import { PageLoader } from '../../components/ui/LoadingSpinner';
 import { AppointmentStatusBadge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
 import { Appointment, Provider } from '../../types';
-import { Calendar, Plus, MapPin, Clock, User, X } from 'lucide-react';
+import { Calendar, Plus, MapPin, Clock, User } from 'lucide-react';
 
 const APPT_TYPES = [
   { value: 'office_visit', label: 'Office Visit' },
@@ -38,10 +38,16 @@ export default function Appointments() {
     }).finally(() => setLoading(false));
   }, []);
 
+  // Strip timezone offset so appointment times display as stored (not converted to browser tz)
+  const parseApptDate = (iso: string) => parseISO(iso.replace('Z', '').replace(/[+-]\d{2}:\d{2}$/, ''));
+
   const filtered = appointments.filter((a) => {
     if (tab === 'upcoming') return ['scheduled', 'checked_in'].includes(a.status);
     if (tab === 'past') return a.status === 'completed';
     return a.status === 'cancelled' || a.status === 'no_show';
+  }).sort((a, b) => {
+    const dir = tab === 'upcoming' ? 1 : -1;
+    return dir * a.scheduled_at.localeCompare(b.scheduled_at);
   });
 
   const handleCancel = async (id: string) => {
@@ -70,7 +76,14 @@ export default function Appointments() {
         type: form.type,
         chiefComplaint: form.chiefComplaint,
       });
-      setAppointments(prev => [res.data, ...prev]);
+      const provider = providers.find((p) => String(p.id) === String(form.providerId));
+      const enriched = {
+        ...res.data,
+        provider_first: provider?.first_name ?? '',
+        provider_last: provider?.last_name ?? '',
+        specialty: provider?.specialty ?? '',
+      };
+      setAppointments(prev => [enriched, ...prev]);
       setShowSchedule(false);
       setForm({ providerId: '', date: '', time: '', type: 'office_visit', chiefComplaint: '' });
     } catch (err: any) {
@@ -89,7 +102,7 @@ export default function Appointments() {
           <h1 className="text-2xl font-bold text-gray-900">Appointments</h1>
           <p className="text-sm text-gray-500 mt-0.5">View and manage your healthcare visits</p>
         </div>
-        <button onClick={() => setShowSchedule(true)} className="btn-primary">
+        <button onClick={() => setShowSchedule(true)} className="btn-primary" data-testid="schedule-appointment-button">
           <Plus size={16} />
           Schedule Appointment
         </button>
@@ -104,6 +117,7 @@ export default function Appointments() {
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all capitalize ${
               tab === t ? 'bg-white text-cisco-dark-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}
+            data-testid={`tab-${t}`}
           >
             {t}
           </button>
@@ -117,25 +131,25 @@ export default function Appointments() {
             <Calendar size={40} className="text-gray-200 mx-auto mb-3" />
             <p className="text-gray-500 text-sm">No {tab} appointments</p>
             {tab === 'upcoming' && (
-              <button onClick={() => setShowSchedule(true)} className="btn-primary mt-4 mx-auto">
+              <button onClick={() => setShowSchedule(true)} className="btn-primary mt-4 mx-auto" data-testid="schedule-appointment-empty-button">
                 Schedule an Appointment
               </button>
             )}
           </div>
         ) : (
           filtered.map((appt) => (
-            <div key={appt.id} className="card p-5 hover:shadow-card-hover transition-shadow">
+            <div key={appt.id} className="card p-5 hover:shadow-card-hover transition-shadow" data-testid={`appointment-card-${appt.id}`}>
               <div className="flex items-start gap-5">
                 {/* Date block */}
                 <div className="text-center bg-cisco-blue/10 rounded-xl p-3 min-w-[64px] flex-shrink-0">
                   <div className="text-xs font-semibold text-cisco-blue uppercase">
-                    {format(parseISO(appt.scheduled_at), 'MMM')}
+                    {format(parseApptDate(appt.scheduled_at), 'MMM')}
                   </div>
                   <div className="text-2xl font-bold text-cisco-dark-blue leading-tight">
-                    {format(parseISO(appt.scheduled_at), 'd')}
+                    {format(parseApptDate(appt.scheduled_at), 'd')}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {format(parseISO(appt.scheduled_at), 'yyyy')}
+                    {format(parseApptDate(appt.scheduled_at), 'yyyy')}
                   </div>
                 </div>
 
@@ -154,8 +168,8 @@ export default function Appointments() {
                   <div className="flex flex-wrap gap-4 mt-3">
                     <div className="flex items-center gap-1.5 text-xs text-gray-600">
                       <Clock size={13} className="text-gray-400" />
-                      {format(parseISO(appt.scheduled_at), 'EEEE, MMMM d')} at{' '}
-                      {format(parseISO(appt.scheduled_at), 'h:mm a')}
+                      {format(parseApptDate(appt.scheduled_at), 'EEEE, MMMM d')} at{' '}
+                      {format(parseApptDate(appt.scheduled_at), 'h:mm a')}
                       {' '}({appt.duration_minutes} min)
                     </div>
                     {appt.location && (
@@ -182,6 +196,7 @@ export default function Appointments() {
                         onClick={() => handleCancel(appt.id)}
                         disabled={cancelling === appt.id}
                         className="text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 hover:text-cisco-red transition-colors"
+                        data-testid={`cancel-appointment-${appt.id}`}
                       >
                         Cancel Appointment
                       </button>
@@ -202,8 +217,8 @@ export default function Appointments() {
         size="md"
         footer={
           <>
-            <button onClick={() => setShowSchedule(false)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSchedule} disabled={scheduling} className="btn-primary">
+            <button onClick={() => setShowSchedule(false)} className="btn-secondary" data-testid="schedule-modal-cancel-button">Cancel</button>
+            <button onClick={handleSchedule} disabled={scheduling} className="btn-primary" data-testid="schedule-modal-confirm-button">
               {scheduling ? 'Scheduling...' : 'Confirm Appointment'}
             </button>
           </>
@@ -216,6 +231,7 @@ export default function Appointments() {
               className="form-input"
               value={form.providerId}
               onChange={(e) => setForm({ ...form, providerId: e.target.value })}
+              data-testid="schedule-modal-provider-select"
             >
               <option value="">Select a provider</option>
               {providers.map((p) => (
@@ -235,6 +251,7 @@ export default function Appointments() {
                 value={form.date}
                 min={new Date().toISOString().split('T')[0]}
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
+                data-testid="schedule-modal-date-input"
               />
             </div>
             <div>
@@ -243,6 +260,7 @@ export default function Appointments() {
                 className="form-input"
                 value={form.time}
                 onChange={(e) => setForm({ ...form, time: e.target.value })}
+                data-testid="schedule-modal-time-select"
               >
                 <option value="">Select time</option>
                 {['09:00','09:30','10:00','10:30','11:00','11:30',
@@ -259,6 +277,7 @@ export default function Appointments() {
               className="form-input"
               value={form.type}
               onChange={(e) => setForm({ ...form, type: e.target.value })}
+              data-testid="schedule-modal-type-select"
             >
               {APPT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
@@ -272,6 +291,7 @@ export default function Appointments() {
               placeholder="Brief description of your symptoms or reason for visit..."
               value={form.chiefComplaint}
               onChange={(e) => setForm({ ...form, chiefComplaint: e.target.value })}
+              data-testid="schedule-modal-reason-textarea"
             />
           </div>
 

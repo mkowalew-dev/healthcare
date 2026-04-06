@@ -30,7 +30,10 @@ export default function PatientDashboard() {
       messagesApi.unreadCount(),
     ])
       .then(([appts, labs, meds, billSum, msgs]) => {
-        setUpcomingAppts(appts.data.slice(0, 3));
+        const sorted = [...appts.data].sort((a: Appointment, b: Appointment) =>
+          a.scheduled_at.localeCompare(b.scheduled_at)
+        );
+        setUpcomingAppts(sorted.slice(0, 3));
         setRecentLabs(labs.data.filter((l: LabResult) => l.status !== 'pending').slice(0, 5));
         setActiveMeds(meds.data.slice(0, 5));
         setBillSummary(billSum.data);
@@ -40,6 +43,9 @@ export default function PatientDashboard() {
   }, []);
 
   if (loading) return <PageLoader />;
+
+  // Strip timezone offset so appointment times display as stored (not converted to browser tz)
+  const parseApptDate = (iso: string) => parseISO(iso.replace('Z', '').replace(/[+-]\d{2}:\d{2}$/, ''));
 
   const today = format(new Date(), 'EEEE, MMMM d, yyyy');
 
@@ -70,7 +76,8 @@ export default function PatientDashboard() {
             { label: 'Active Meds', value: activeMeds.length, to: '/patient/medications' },
             { label: 'New Messages', value: unreadMessages, to: '/patient/messages' },
           ].map(({ label, value, to }) => (
-            <Link key={label} to={to} className="text-center hover:bg-white/10 rounded-lg p-2 transition-colors">
+            <Link key={label} to={to} className="text-center hover:bg-white/10 rounded-lg p-2 transition-colors"
+              data-testid={`dashboard-stat-${label.toLowerCase().replace(/\s+/g, '-')}`}>
               <div className="text-2xl font-bold">{value}</div>
               <div className="text-white/60 text-xs mt-0.5">{label}</div>
             </Link>
@@ -124,7 +131,7 @@ export default function PatientDashboard() {
                 </div>
               ) : (
                 upcomingAppts.map((appt) => (
-                  <div key={appt.id} className="px-5 py-4 hover:bg-gray-50 transition-colors">
+                  <div key={appt.id} className="px-5 py-4 hover:bg-gray-50 transition-colors" data-testid={`appointment-card-${appt.id}`}>
                     <div className="flex items-start justify-between">
                       <div className="flex gap-4">
                         <div className="bg-cisco-blue/10 rounded-lg p-2.5 flex-shrink-0">
@@ -138,8 +145,8 @@ export default function PatientDashboard() {
                           <div className="flex items-center gap-2 mt-1.5">
                             <Clock size={12} className="text-gray-400" />
                             <span className="text-xs text-gray-600">
-                              {format(parseISO(appt.scheduled_at), 'EEE, MMM d, yyyy')} at{' '}
-                              {format(parseISO(appt.scheduled_at), 'h:mm a')}
+                              {format(parseApptDate(appt.scheduled_at), 'EEE, MMM d, yyyy')} at{' '}
+                              {format(parseApptDate(appt.scheduled_at), 'h:mm a')}
                             </span>
                           </div>
                           <div className="text-xs text-gray-400 mt-0.5">
@@ -222,6 +229,7 @@ export default function PatientDashboard() {
                   key={to}
                   to={to}
                   className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
+                  data-testid={`quick-action-${label.toLowerCase().replace(/\s+/g, '-')}`}
                 >
                   <Icon size={18} className={color} />
                   <span className="text-sm font-medium text-gray-700">{label}</span>
@@ -256,7 +264,7 @@ export default function PatientDashboard() {
                 <span className="font-semibold text-cisco-green">${Number(billSummary.paid_ytd).toFixed(2)}</span>
               </div>
               {billSummary.total_owed > 0 && (
-                <Link to="/patient/billing" className="btn-primary w-full justify-center mt-2">
+                <Link to="/patient/billing" className="btn-primary w-full justify-center mt-2" data-testid="billing-pay-balance-link">
                   Pay Balance
                 </Link>
               )}

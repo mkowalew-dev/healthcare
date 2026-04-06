@@ -74,7 +74,7 @@ export default function PatientChart() {
   return (
     <div className="space-y-6">
       {/* Back link */}
-      <Link to="/provider/patients" className="inline-flex items-center gap-1.5 text-sm text-cisco-blue hover:underline">
+      <Link to="/provider/patients" className="inline-flex items-center gap-1.5 text-sm text-cisco-blue hover:underline" data-testid="back-to-patients">
         <ArrowLeft size={14} /> Back to Patients
       </Link>
 
@@ -126,6 +126,7 @@ export default function PatientChart() {
                   ? 'border-cisco-blue text-cisco-blue'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
+              data-testid={`chart-tab-${t.id}`}
             >
               <t.icon size={15} />
               {t.label}
@@ -269,7 +270,7 @@ export default function PatientChart() {
 
       {tab === 'notes' && (
         <div className="space-y-4">
-          <button onClick={() => setShowNoteModal(true)} className="btn-primary">
+          <button onClick={() => setShowNoteModal(true)} className="btn-primary" data-testid="add-note-button">
             <Plus size={16} /> Add Progress Note
           </button>
           {notes.map(n => (
@@ -300,8 +301,8 @@ export default function PatientChart() {
       <Modal isOpen={showNoteModal} onClose={() => setShowNoteModal(false)} title="Add Progress Note" size="lg"
         footer={
           <>
-            <button onClick={() => setShowNoteModal(false)} className="btn-secondary">Cancel</button>
-            <button onClick={saveNote} disabled={savingNote} className="btn-primary">
+            <button onClick={() => setShowNoteModal(false)} className="btn-secondary" data-testid="cancel-note-button">Cancel</button>
+            <button onClick={saveNote} disabled={savingNote} className="btn-primary" data-testid="save-note-button">
               {savingNote ? 'Saving...' : 'Save Note'}
             </button>
           </>
@@ -313,6 +314,7 @@ export default function PatientChart() {
           value={noteContent}
           onChange={e => setNoteContent(e.target.value)}
           placeholder="SUBJECTIVE:&#10;&#10;OBJECTIVE:&#10;&#10;ASSESSMENT:&#10;&#10;PLAN:"
+          data-testid="note-content-textarea"
         />
       </Modal>
     </div>

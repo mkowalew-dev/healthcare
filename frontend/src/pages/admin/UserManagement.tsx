@@ -66,6 +66,7 @@ export default function UserManagement() {
             placeholder="Search by name or email..."
             value={search}
             onChange={e => setSearch(e.target.value)}
+            data-testid="user-search-input"
           />
         </div>
         <div className="flex gap-1">
@@ -76,6 +77,7 @@ export default function UserManagement() {
               className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors ${
                 roleFilter === r ? 'bg-cisco-blue text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
+              data-testid={`role-filter-${r}`}
             >
               {r === 'all' ? 'All Roles' : r}s
             </button>
@@ -99,7 +101,7 @@ export default function UserManagement() {
           </thead>
           <tbody>
             {filtered.map(user => (
-              <tr key={user.id}>
+              <tr key={user.id} data-testid={`user-row-${user.id}`}>
                 <td>
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -140,6 +142,7 @@ export default function UserManagement() {
                         ? 'border-red-200 text-red-600 hover:bg-red-50'
                         : 'border-green-200 text-green-600 hover:bg-green-50'
                     } disabled:opacity-50`}
+                    data-testid={`toggle-user-${user.id}`}
                   >
                     {toggling === user.id ? (
                       '...'

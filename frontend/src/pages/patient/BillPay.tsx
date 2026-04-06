@@ -107,6 +107,7 @@ export default function BillPay() {
                   ? 'bg-cisco-blue text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
+              data-testid={`filter-${f}`}
             >
               {f === 'all' ? 'All Statements' : f}
             </button>
@@ -176,6 +177,7 @@ export default function BillPay() {
                         <button
                           onClick={() => openPayModal(bill)}
                           className="btn-primary text-xs py-1.5 px-3"
+                          data-testid={`bill-pay-button-${bill.id}`}
                         >
                           Pay Now
                         </button>
@@ -196,13 +198,13 @@ export default function BillPay() {
         title="Make a Payment"
         footer={
           confirmation ? (
-            <button onClick={() => { setPayModal(null); setConfirmation(null); }} className="btn-primary">
+            <button onClick={() => { setPayModal(null); setConfirmation(null); }} className="btn-primary" data-testid="payment-done-button">
               Done
             </button>
           ) : (
             <>
-              <button onClick={() => setPayModal(null)} className="btn-secondary">Cancel</button>
-              <button onClick={handlePay} disabled={processing} className="btn-primary">
+              <button onClick={() => setPayModal(null)} className="btn-secondary" data-testid="payment-cancel-button">Cancel</button>
+              <button onClick={handlePay} disabled={processing} className="btn-primary" data-testid="payment-submit-button">
                 {processing ? 'Processing...' : `Pay $${payAmount}`}
               </button>
             </>
@@ -240,13 +242,14 @@ export default function BillPay() {
                   className="form-input pl-7"
                   value={payAmount}
                   onChange={(e) => setPayAmount(e.target.value)}
+                  data-testid="payment-amount-input"
                 />
               </div>
             </div>
 
             <div>
               <label className="form-label">Payment Method</label>
-              <select className="form-input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+              <select className="form-input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)} data-testid="payment-method-select">
                 <option value="credit_card">Credit Card ending in 4242</option>
                 <option value="hsa">HSA Account</option>
                 <option value="check">Check</option>

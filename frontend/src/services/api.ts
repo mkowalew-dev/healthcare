@@ -118,6 +118,7 @@ export const messagesApi = {
   send: (data: Record<string, unknown>) => api.post('/api/messages', data),
   markRead: (id: string) => api.patch(`/api/messages/${id}/read`),
   providersList: () => api.get('/api/messages/providers-list'),
+  recipientsSearch: (q: string) => api.get('/api/messages/recipients-search', { params: { q } }),
 };
 
 // Vitals

@@ -119,6 +119,7 @@ rsync -a --delete "${BUILD_TMP}/dist/" "${WEB_ROOT}/"
 chmod -R 755 "${WEB_ROOT}"
 log "Files deployed to ${WEB_ROOT}"
 
+cd /
 rm -rf "${BUILD_TMP}"
 
 # ── Create systemd service for `serve` ───────────────────────

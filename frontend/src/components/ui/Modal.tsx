@@ -34,14 +34,17 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
       <div
         className="absolute inset-0 bg-black/40 animate-fade-in"
         onClick={onClose}
+        data-testid="modal-overlay"
       />
-      <div className={`relative w-full ${sizes[size]} bg-white rounded-xl shadow-2xl animate-slide-in max-h-[90vh] flex flex-col`}>
+      <div className={`relative w-full ${sizes[size]} bg-white rounded-xl shadow-2xl animate-slide-in max-h-[90vh] flex flex-col`} data-testid="modal-container" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          <h2 id="modal-title" className="text-lg font-semibold text-gray-900">{title}</h2>
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            aria-label="Close modal"
+            data-testid="modal-close-button"
           >
             <X size={18} />
           </button>

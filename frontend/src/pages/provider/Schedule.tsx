@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, parseISO, addDays, startOfWeek, isSameDay } from 'date-fns';
 import { appointmentsApi } from '../../services/api';
 import { PageLoader } from '../../components/ui/LoadingSpinner';
@@ -7,6 +8,7 @@ import { Appointment } from '../../types';
 import { ChevronLeft, ChevronRight, Calendar, Video, MapPin } from 'lucide-react';
 
 export default function ProviderSchedule() {
+  const navigate = useNavigate();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [weekStart, setWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -21,7 +23,7 @@ export default function ProviderSchedule() {
   const apptsByDay = (day: Date) =>
     appointments.filter(a =>
       !['cancelled', 'no_show'].includes(a.status) &&
-      isSameDay(parseISO(a.scheduled_at), day)
+      a.scheduled_at.startsWith(format(day, 'yyyy-MM-dd'))
     ).sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at));
 
   if (loading) return <PageLoader />;
@@ -39,18 +41,23 @@ export default function ProviderSchedule() {
           <button
             onClick={() => setWeekStart(addDays(weekStart, -7))}
             className="btn-secondary p-2"
+            aria-label="Previous week"
+            data-testid="schedule-prev-week"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
             className="btn-secondary text-sm"
+            data-testid="schedule-this-week"
           >
             This Week
           </button>
           <button
             onClick={() => setWeekStart(addDays(weekStart, 7))}
             className="btn-secondary p-2"
+            aria-label="Next week"
+            data-testid="schedule-next-week"
           >
             <ChevronRight size={16} />
           </button>
@@ -92,7 +99,7 @@ export default function ProviderSchedule() {
               </div>
               {weekDays.map(day => {
                 const dayAppts = apptsByDay(day).filter(a => {
-                  const apptHour = parseISO(a.scheduled_at).getHours();
+                  const apptHour = parseInt(a.scheduled_at.substring(11, 13), 10);
                   return apptHour === hour;
                 });
                 const isToday = isSameDay(day, new Date());
@@ -105,11 +112,14 @@ export default function ProviderSchedule() {
                     {dayAppts.map(appt => (
                       <div
                         key={appt.id}
+                        onClick={() => navigate(`/provider/patients/${appt.patient_id}`)}
                         className={`rounded-lg px-2 py-1.5 mb-1 text-xs cursor-pointer transition-shadow hover:shadow-md ${
                           appt.status === 'completed' ? 'bg-green-100 border border-green-200' :
                           appt.status === 'checked_in' ? 'bg-amber-100 border border-amber-200' :
                           'bg-cisco-blue/10 border border-cisco-blue/20'
                         }`}
+                        data-testid={`appointment-slot-${appt.id}`}
+                        role="button"
                       >
                         <div className="font-semibold text-gray-800 truncate">
                           {appt.patient_first} {appt.patient_last}
@@ -141,7 +151,7 @@ export default function ProviderSchedule() {
           ) : (
             weekDays.flatMap(day =>
               apptsByDay(day).map(appt => (
-                <div key={appt.id} className="px-5 py-3 flex items-center gap-4">
+                <div key={appt.id} onClick={() => navigate(`/provider/patients/${appt.patient_id}`)} className="px-5 py-3 flex items-center gap-4 cursor-pointer hover:bg-gray-50 transition-colors" data-testid={`schedule-list-item-${appt.id}`} role="button">
                   <div className="w-24 text-xs text-gray-500 flex-shrink-0">
                     <div className="font-medium text-gray-700">{format(day, 'EEE, MMM d')}</div>
                     <div>{format(parseISO(appt.scheduled_at), 'h:mm a')}</div>
