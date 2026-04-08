@@ -13,7 +13,7 @@
 const { start } = require('@splunk/otel');
 const { trace } = require('@opentelemetry/api');
 
-const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'careconnect-web';
+const SERVICE_NAME = process.env.OTEL_SERVICE_NAME || 'careconnect-front-end';
 const REALM = process.env.SPLUNK_REALM || 'us1';
 const ACCESS_TOKEN = process.env.SPLUNK_ACCESS_TOKEN;
 
