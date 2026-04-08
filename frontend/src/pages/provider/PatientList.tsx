@@ -83,7 +83,7 @@ export default function PatientList() {
                           </span>
                         </div>
                         <div>
-                          <div className="font-medium text-gray-900">{p.first_name} {p.last_name}</div>
+                          <div className="font-medium text-gray-900">{`${p.first_name} ${p.last_name}`}</div>
                           <div className="text-xs text-gray-400">{p.phone}</div>
                         </div>
                       </div>

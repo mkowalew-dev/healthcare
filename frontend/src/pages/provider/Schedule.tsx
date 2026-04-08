@@ -122,7 +122,7 @@ export default function ProviderSchedule() {
                         role="button"
                       >
                         <div className="font-semibold text-gray-800 truncate">
-                          {appt.patient_first} {appt.patient_last}
+                          {`${appt.patient_first} ${appt.patient_last}`}
                         </div>
                         <div className="flex items-center gap-1 text-gray-500 mt-0.5">
                           {appt.type === 'telehealth' ? <Video size={10} /> : <MapPin size={10} />}
@@ -158,7 +158,7 @@ export default function ProviderSchedule() {
                   </div>
                   <div className="flex-1">
                     <div className="font-medium text-sm text-gray-900">
-                      {appt.patient_first} {appt.patient_last}
+                      {`${appt.patient_first} ${appt.patient_last}`}
                     </div>
                     <div className="text-xs text-gray-400">
                       MRN: {appt.mrn} &middot; {appt.type.replace('_', ' ')}

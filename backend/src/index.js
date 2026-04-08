@@ -71,6 +71,9 @@ app.use('/api/vitals', require('./routes/vitals'));
 app.use('/api/notes', require('./routes/notes'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/eprescribe', require('./routes/eprescribe'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/fhir', require('./routes/fhir'));
 
 // 404 handler
 app.use((req, res) => {
@@ -107,6 +110,15 @@ async function startServer() {
       console.log(`   Health:     http://localhost:${PORT}/health`);
       console.log(`   Docs:       http://localhost:${PORT}/api\n`);
     });
+
+    // Start background lab result simulator (results pending labs every 15 min).
+    // Guard to instance 0 only — prevents duplicate runs when PM2 cluster mode
+    // spawns multiple workers; all workers share the same DB so one is enough.
+    const isPrimaryWorker = !process.env.NODE_APP_INSTANCE || process.env.NODE_APP_INSTANCE === '0';
+    if (isPrimaryWorker) {
+      const { startLabSimulator } = require('./lab-simulator');
+      startLabSimulator();
+    }
   } catch (err) {
     logger.error('Failed to start server', { error: err.message });
     process.exit(1);

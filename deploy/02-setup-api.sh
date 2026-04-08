@@ -28,6 +28,13 @@ BACKEND_SRC="${BACKEND_SRC:-}"
 # AI Assistant — get from console.anthropic.com → API Keys
 # Leave blank to disable the AI Assistant (app still runs without it)
 ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+
+# Mock External Services (VM4) — set to the private IP of the mock VM
+# Use localhost only if mock is co-located on this VM
+MOCK_HOST="${MOCK_HOST:-}"
+MOCK_PORT="${MOCK_PORT:-3002}"
+[[ -z "$MOCK_HOST" ]] && warn "MOCK_HOST not set — integration URLs will point to localhost. Set MOCK_HOST to the VM4 private IP."
+MOCK_BASE="http://${MOCK_HOST:-localhost}:${MOCK_PORT}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -128,6 +135,20 @@ LOG_LEVEL=info
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN}
 SPLUNK_REALM=${SPLUNK_REALM}
+
+# Mock External Services — all integration routes call these URLs
+SURESCRIPTS_URL=${MOCK_BASE}/surescripts
+QUEST_LIS_URL=${MOCK_BASE}/quest
+LABCORP_LIS_URL=${MOCK_BASE}/labcorp
+TWILIO_API_URL=${MOCK_BASE}/twilio
+SENDGRID_API_URL=${MOCK_BASE}/sendgrid
+
+# FHIR base URL — shown on the Integration Health page
+FHIR_BASE_URL=https://${FRONTEND_HOST:-$HOSTNAME}/fhir
+
+# Lab result simulator — results pending labs on a background interval
+LAB_RESULT_INTERVAL_MS=${LAB_RESULT_INTERVAL_MS:-900000}
+LAB_MIN_AGE_MS=${LAB_MIN_AGE_MS:-${LAB_RESULT_INTERVAL_MS:-900000}}
 EOF
 chmod 600 "${APP_DIR}/.env"
 log "Environment file written"

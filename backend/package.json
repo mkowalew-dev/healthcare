@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "seed": "node src/db/seed.js"
+    "seed": "node src/db/seed.js",
+    "mock": "nodemon src/mock-services.js",
+    "mock:start": "node src/mock-services.js",
+    "dev:all": "concurrently \"npm run dev\" \"npm run mock\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",

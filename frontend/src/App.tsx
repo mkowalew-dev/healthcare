@@ -19,11 +19,16 @@ import PatientList from './pages/provider/PatientList';
 import PatientChart from './pages/provider/PatientChart';
 import ProviderSchedule from './pages/provider/Schedule';
 import ProviderMessages from './pages/provider/Messages';
+import Prescribe from './pages/provider/Prescribe';
 
 // Admin pages
 import AdminDashboard from './pages/admin/Dashboard';
 import UserManagement from './pages/admin/UserManagement';
 import Departments from './pages/admin/Departments';
+import Integrations from './pages/admin/Integrations';
+
+// Patient pages (additional)
+import PatientNotifications from './pages/patient/Notifications';
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, isLoading } = useAuth();
@@ -69,6 +74,7 @@ function AppRoutes() {
         <Route path="billing" element={<BillPay />} />
         <Route path="messages" element={<PatientMessages />} />
         <Route path="health-summary" element={<HealthSummary />} />
+        <Route path="notifications" element={<PatientNotifications />} />
         <Route index element={<Navigate to="dashboard" replace />} />
       </Route>
 
@@ -82,6 +88,7 @@ function AppRoutes() {
         <Route path="patients/:id" element={<PatientChart />} />
         <Route path="schedule" element={<ProviderSchedule />} />
         <Route path="messages" element={<ProviderMessages />} />
+        <Route path="prescribe" element={<Prescribe />} />
         <Route index element={<Navigate to="dashboard" replace />} />
       </Route>
 
@@ -93,6 +100,7 @@ function AppRoutes() {
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="departments" element={<Departments />} />
+        <Route path="integrations" element={<Integrations />} />
         <Route index element={<Navigate to="dashboard" replace />} />
       </Route>
 

@@ -204,6 +204,78 @@ CREATE TABLE IF NOT EXISTS clinical_notes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ePrescriptions (Surescripts integration)
+CREATE TABLE IF NOT EXISTS prescriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+  provider_id UUID REFERENCES providers(id),
+  medication_name VARCHAR(200) NOT NULL,
+  generic_name VARCHAR(200),
+  sig TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  days_supply INTEGER,
+  refills INTEGER DEFAULT 0,
+  dosage_form VARCHAR(100),
+  strength VARCHAR(100),
+  pharmacy_name VARCHAR(200),
+  pharmacy_ncpdp VARCHAR(20),
+  pharmacy_address TEXT,
+  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft','submitted','confirmed','rejected','cancelled','on_hold')),
+  surescripts_rx_id VARCHAR(100),
+  ndc_code VARCHAR(20),
+  dea_schedule VARCHAR(5),
+  icd10_codes TEXT,
+  submitted_at TIMESTAMPTZ,
+  confirmed_at TIMESTAMPTZ,
+  external_response JSONB,
+  latency_ms INTEGER,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- LIS Orders (Quest Diagnostics / LabCorp integration)
+CREATE TABLE IF NOT EXISTS lis_orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+  provider_id UUID REFERENCES providers(id),
+  lab_result_id UUID REFERENCES lab_results(id) ON DELETE SET NULL,
+  order_number VARCHAR(50) UNIQUE,
+  lis_vendor VARCHAR(50) DEFAULT 'Quest',
+  priority VARCHAR(20) DEFAULT 'routine' CHECK (priority IN ('routine','stat','urgent')),
+  status VARCHAR(20) DEFAULT 'ordered' CHECK (status IN ('ordered','received','in_progress','resulted','cancelled')),
+  icd10_codes TEXT,
+  specimen_type VARCHAR(100),
+  collection_instructions TEXT,
+  ordered_at TIMESTAMPTZ DEFAULT NOW(),
+  received_at TIMESTAMPTZ,
+  resulted_at TIMESTAMPTZ,
+  lis_confirmation VARCHAR(100),
+  external_response JSONB,
+  latency_ms INTEGER
+);
+
+-- Notification Log (Twilio SMS / SendGrid Email)
+CREATE TABLE IF NOT EXISTS notification_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID REFERENCES patients(id) ON DELETE CASCADE,
+  triggered_by UUID REFERENCES users(id),
+  type VARCHAR(50) NOT NULL CHECK (type IN ('lab_critical','appointment_reminder','prescription_ready','message_received','general')),
+  channel VARCHAR(20) NOT NULL CHECK (channel IN ('sms','email','both')),
+  recipient_phone VARCHAR(30),
+  recipient_email VARCHAR(255),
+  subject VARCHAR(300),
+  body TEXT NOT NULL,
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending','sent','failed','delivered')),
+  sms_external_id VARCHAR(100),
+  email_external_id VARCHAR(100),
+  sms_latency_ms INTEGER,
+  email_latency_ms INTEGER,
+  error_message TEXT,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  metadata JSONB
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_appointments_patient ON appointments(patient_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_provider ON appointments(provider_id);

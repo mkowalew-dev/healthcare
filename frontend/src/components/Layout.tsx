@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Calendar, FlaskConical, Pill, CreditCard, MessageSquare,
   Heart, Users, ClipboardList, ShieldCheck, LogOut, Menu, X, Bell,
-  ChevronDown, Activity, Settings, UserCog,
+  ChevronDown, Activity, Settings, UserCog, Zap, Send,
 } from 'lucide-react';
 import { AiChat } from './AiChat';
 
@@ -36,6 +36,7 @@ const patientNav: NavItem[] = [
   { to: '/patient/billing', label: 'Billing', icon: CreditCard },
   { to: '/patient/messages', label: 'Messages', icon: MessageSquare },
   { to: '/patient/health-summary', label: 'Health Summary', icon: Heart },
+  { to: '/patient/notifications', label: 'Notifications', icon: Bell },
 ];
 
 const providerNav: NavItem[] = [
@@ -43,12 +44,14 @@ const providerNav: NavItem[] = [
   { to: '/provider/patients', label: 'My Patients', icon: Users },
   { to: '/provider/schedule', label: 'Schedule', icon: Calendar },
   { to: '/provider/messages', label: 'Messages', icon: MessageSquare },
+  { to: '/provider/prescribe', label: 'ePrescribing', icon: Send },
 ];
 
 const adminNav: NavItem[] = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/admin/users', label: 'Users', icon: UserCog },
   { to: '/admin/departments', label: 'Departments', icon: ShieldCheck },
+  { to: '/admin/integrations', label: 'Integrations', icon: Zap },
 ];
 
 export function Layout() {
