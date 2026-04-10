@@ -22,7 +22,7 @@ const logger = winston.createLogger({
     winston.format.json()
   ),
   defaultMeta: {
-    service: 'careconnect-front-end',
+    service: 'careconnect-frontend',
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
     host: require('os').hostname(),

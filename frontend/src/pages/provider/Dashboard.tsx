@@ -61,13 +61,13 @@ export default function ProviderDashboard() {
 
         <div className="grid grid-cols-4 gap-4 mt-5 pt-5 border-t border-white/20">
           {[
-            { label: "Today's Patients", value: todayAppts.length },
-            { label: 'Completed', value: completedToday },
-            { label: 'Remaining', value: remainingToday },
-            { label: 'Total Patients', value: patientCount },
-          ].map(({ label, value }) => (
-            <div key={label} className="text-center">
-              <div className="text-2xl font-bold">{value}</div>
+            { label: "Today's Patients", value: todayAppts.length, testId: 'stat-today-patients' },
+            { label: 'Completed', value: completedToday, testId: 'stat-completed' },
+            { label: 'Remaining', value: remainingToday, testId: 'stat-remaining' },
+            { label: 'Total Patients', value: patientCount, testId: 'stat-total-patients' },
+          ].map(({ label, value, testId }) => (
+            <div key={label} className="text-center" data-testid={testId}>
+              <div className="text-2xl font-bold" data-testid={`${testId}-value`}>{value}</div>
               <div className="text-white/60 text-xs mt-0.5">{label}</div>
             </div>
           ))}
@@ -83,24 +83,24 @@ export default function ProviderDashboard() {
                 <Calendar size={18} className="text-cisco-blue" />
                 <h2 className="font-semibold text-gray-900">Today's Schedule</h2>
               </div>
-              <Link to="/provider/schedule" className="text-xs text-cisco-blue hover:underline flex items-center gap-1">
+              <Link to="/provider/schedule" className="text-xs text-cisco-blue hover:underline flex items-center gap-1" data-testid="link-full-schedule">
                 Full schedule <ChevronRight size={12} />
               </Link>
             </div>
 
             <div className="divide-y divide-gray-100">
               {todayAppts.length === 0 ? (
-                <div className="py-12 text-center text-sm text-gray-500">
+                <div className="py-12 text-center text-sm text-gray-500" data-testid="schedule-empty">
                   No appointments scheduled for today
                 </div>
               ) : (
                 todayAppts
                   .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
                   .map((appt) => (
-                    <div key={appt.id} className="px-5 py-4 hover:bg-gray-50 transition-colors">
+                    <div key={appt.id} className="px-5 py-4 hover:bg-gray-50 transition-colors" data-testid={`schedule-appt-${appt.id}`}>
                       <div className="flex items-center gap-4">
                         <div className="text-center w-14 flex-shrink-0">
-                          <div className="text-sm font-bold text-cisco-dark-blue">
+                          <div className="text-sm font-bold text-cisco-dark-blue" data-testid="appt-time">
                             {format(parseISO(appt.scheduled_at), 'h:mm')}
                           </div>
                           <div className="text-xs text-gray-400">
@@ -114,16 +114,17 @@ export default function ProviderDashboard() {
                               <Link
                                 to={`/provider/patients/${appt.patient_id}`}
                                 className="font-medium text-gray-900 hover:text-cisco-blue text-sm"
+                                data-testid="appt-patient-name"
                               >
                                 {appt.patient_first} {appt.patient_last}
                               </Link>
-                              <div className="text-xs text-gray-500">MRN: {appt.mrn}</div>
+                              <div className="text-xs text-gray-500" data-testid="appt-mrn">MRN: {appt.mrn}</div>
                             </div>
-                            <AppointmentStatusBadge status={appt.status} />
+                            <AppointmentStatusBadge status={appt.status} data-testid="appt-status" />
                           </div>
                           <div className="flex gap-3 mt-1.5 text-xs text-gray-500">
-                            <span className="capitalize">{appt.type.replace('_', ' ')}</span>
-                            {appt.chief_complaint && <span>— {appt.chief_complaint}</span>}
+                            <span className="capitalize" data-testid="appt-type">{appt.type.replace('_', ' ')}</span>
+                            {appt.chief_complaint && <span data-testid="appt-complaint">— {appt.chief_complaint}</span>}
                           </div>
                         </div>
                       </div>
@@ -141,14 +142,15 @@ export default function ProviderDashboard() {
             <h2 className="font-semibold text-gray-900 mb-3">Quick Actions</h2>
             <div className="space-y-2">
               {[
-                { to: '/provider/patients', icon: Users, label: 'View My Patients', color: 'text-cisco-blue' },
-                { to: '/provider/schedule', icon: Calendar, label: 'View Schedule', color: 'text-cisco-dark-blue' },
-                { to: '/provider/messages', icon: MessageSquare, label: 'Messages', color: 'text-cisco-cyan' },
-              ].map(({ to, icon: Icon, label, color }) => (
+                { to: '/provider/patients', icon: Users, label: 'View My Patients', color: 'text-cisco-blue', testId: 'quick-action-patients' },
+                { to: '/provider/schedule', icon: Calendar, label: 'View Schedule', color: 'text-cisco-dark-blue', testId: 'quick-action-schedule' },
+                { to: '/provider/messages', icon: MessageSquare, label: 'Messages', color: 'text-cisco-cyan', testId: 'quick-action-messages' },
+              ].map(({ to, icon: Icon, label, color, testId }) => (
                 <Link
                   key={to}
                   to={to}
                   className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
+                  data-testid={testId}
                 >
                   <Icon size={18} className={color} />
                   <span className="text-sm font-medium text-gray-700">{label}</span>
@@ -165,21 +167,21 @@ export default function ProviderDashboard() {
                 <MessageSquare size={18} className="text-cisco-blue" />
                 <h2 className="font-semibold text-gray-900">Recent Messages</h2>
               </div>
-              <Link to="/provider/messages" className="text-xs text-cisco-blue hover:underline">View all</Link>
+              <Link to="/provider/messages" className="text-xs text-cisco-blue hover:underline" data-testid="link-all-messages">View all</Link>
             </div>
             <div className="divide-y divide-gray-100">
               {messages.length === 0 ? (
-                <div className="py-6 text-center text-sm text-gray-500">No messages</div>
+                <div className="py-6 text-center text-sm text-gray-500" data-testid="messages-empty">No messages</div>
               ) : (
                 messages.map((msg) => (
-                  <div key={msg.id} className={`px-5 py-3 hover:bg-gray-50 ${!msg.read_at ? 'bg-blue-50/40' : ''}`}>
+                  <div key={msg.id} className={`px-5 py-3 hover:bg-gray-50 ${!msg.read_at ? 'bg-blue-50/40' : ''}`} data-testid={`message-${msg.id}`}>
                     <div className="flex items-center justify-between">
-                      <span className={`text-sm ${!msg.read_at ? 'font-semibold' : 'font-medium'} text-gray-800`}>
+                      <span className={`text-sm ${!msg.read_at ? 'font-semibold' : 'font-medium'} text-gray-800`} data-testid="message-sender">
                         {msg.sender_name}
                       </span>
-                      <span className="text-xs text-gray-400">{format(parseISO(msg.sent_at), 'MM/dd')}</span>
+                      <span className="text-xs text-gray-400" data-testid="message-date">{format(parseISO(msg.sent_at), 'MM/dd')}</span>
                     </div>
-                    <div className="text-xs text-gray-500 truncate">{msg.subject}</div>
+                    <div className="text-xs text-gray-500 truncate" data-testid="message-subject">{msg.subject}</div>
                   </div>
                 ))
               )}

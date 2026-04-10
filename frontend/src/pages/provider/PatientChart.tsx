@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { format, parseISO, differenceInYears } from 'date-fns';
-import { patientsApi, labsApi, medicationsApi, appointmentsApi, notesApi, labOrderApi } from '../../services/api';
+import { patientsApi, labsApi, medicationsApi, appointmentsApi, notesApi, labOrderApi, eprescribeApi } from '../../services/api';
 import { PageLoader } from '../../components/ui/LoadingSpinner';
 import {
   LabStatusBadge, MedStatusBadge, AppointmentStatusBadge, AllergySeverityBadge,
@@ -9,8 +9,26 @@ import {
 import { Modal } from '../../components/ui/Modal';
 import {
   ArrowLeft, AlertTriangle, Pill, FlaskConical, Calendar,
-  FileText, Activity, Heart, Stethoscope, Plus, CheckCircle,
+  FileText, Activity, Heart, Stethoscope, Plus, CheckCircle, Send,
 } from 'lucide-react';
+
+const COMMON_MEDICATIONS = [
+  { name: 'Metformin HCl', genericName: 'metformin', dosageForm: 'Tablet', strength: '500mg', sig: 'Take 1 tablet by mouth twice daily with meals', ndcCode: '00093-1043-01', daysSupply: 90, refills: 3 },
+  { name: 'Lisinopril', genericName: 'lisinopril', dosageForm: 'Tablet', strength: '10mg', sig: 'Take 1 tablet by mouth once daily', ndcCode: '00093-7096-01', daysSupply: 90, refills: 3 },
+  { name: 'Atorvastatin', genericName: 'atorvastatin calcium', dosageForm: 'Tablet', strength: '40mg', sig: 'Take 1 tablet by mouth once daily at bedtime', ndcCode: '00071-0157-23', daysSupply: 90, refills: 3 },
+  { name: 'Amlodipine', genericName: 'amlodipine besylate', dosageForm: 'Tablet', strength: '5mg', sig: 'Take 1 tablet by mouth once daily', ndcCode: '00069-1530-41', daysSupply: 90, refills: 3 },
+  { name: 'Levothyroxine', genericName: 'levothyroxine sodium', dosageForm: 'Tablet', strength: '50mcg', sig: 'Take 1 tablet by mouth once daily on empty stomach', ndcCode: '00527-1340-01', daysSupply: 90, refills: 3 },
+  { name: 'Omeprazole', genericName: 'omeprazole', dosageForm: 'Capsule', strength: '20mg', sig: 'Take 1 capsule by mouth once daily before meal', ndcCode: '00093-7056-98', daysSupply: 30, refills: 5 },
+  { name: 'Sertraline', genericName: 'sertraline HCl', dosageForm: 'Tablet', strength: '50mg', sig: 'Take 1 tablet by mouth once daily', ndcCode: '00049-4960-41', daysSupply: 30, refills: 5 },
+  { name: 'Amoxicillin', genericName: 'amoxicillin', dosageForm: 'Capsule', strength: '500mg', sig: 'Take 1 capsule by mouth three times daily for 10 days', ndcCode: '00093-3107-05', daysSupply: 10, refills: 0 },
+];
+
+const PHARMACIES = [
+  { name: 'CVS Pharmacy #1234', ncpdp: '1234567', address: '123 Main St, San Francisco, CA 94102' },
+  { name: 'Walgreens #5678', ncpdp: '5678901', address: '456 Market St, San Francisco, CA 94105' },
+  { name: 'Rite Aid #9012', ncpdp: '9012345', address: '789 Mission St, San Francisco, CA 94103' },
+  { name: 'Safeway Pharmacy #3456', ncpdp: '3456789', address: '1000 Van Ness Ave, San Francisco, CA 94109' },
+];
 
 const LAB_PRESETS = [
   { testName: 'Complete Blood Count', testCode: 'CBC', panelName: 'Hematology', specimenType: 'blood' },
@@ -39,6 +57,16 @@ export default function PatientChart() {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [noteContent, setNoteContent] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+
+  const [showRxModal, setShowRxModal] = useState(false);
+  const [rxForm, setRxForm] = useState({
+    medicationName: '', genericName: '', dosageForm: '', strength: '',
+    sig: '', quantity: '30', daysSupply: '30', refills: '0',
+    pharmacyName: '', pharmacyNcpdp: '', pharmacyAddress: '',
+    ndcCode: '', icd10Codes: '', notes: '',
+  });
+  const [submittingRx, setSubmittingRx] = useState(false);
+  const [rxConfirmation, setRxConfirmation] = useState<{ medicationName: string; rxId: string; latencyMs: number } | null>(null);
 
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [orderForm, setOrderForm] = useState({
@@ -91,6 +119,44 @@ export default function PatientChart() {
 
   const applyPreset = (preset: typeof LAB_PRESETS[0]) => {
     setOrderForm(f => ({ ...f, testName: preset.testName, testCode: preset.testCode, panelName: preset.panelName, specimenType: preset.specimenType }));
+  };
+
+  const fillMed = (med: typeof COMMON_MEDICATIONS[0]) => {
+    setRxForm(f => ({
+      ...f,
+      medicationName: med.name, genericName: med.genericName,
+      dosageForm: med.dosageForm, strength: med.strength,
+      sig: med.sig, ndcCode: med.ndcCode,
+      daysSupply: String(med.daysSupply), refills: String(med.refills),
+      quantity: String(med.daysSupply),
+    }));
+  };
+
+  const fillPharmacy = (ph: typeof PHARMACIES[0]) => {
+    setRxForm(f => ({ ...f, pharmacyName: ph.name, pharmacyNcpdp: ph.ncpdp, pharmacyAddress: ph.address }));
+  };
+
+  const submitRx = async () => {
+    if (!rxForm.medicationName || !rxForm.sig || !rxForm.quantity || !id) return;
+    setSubmittingRx(true);
+    try {
+      const res = await eprescribeApi.submit({
+        ...rxForm,
+        patientId: id,
+        quantity: Number(rxForm.quantity),
+        daysSupply: Number(rxForm.daysSupply),
+        refills: Number(rxForm.refills),
+      });
+      setRxConfirmation({
+        medicationName: res.data.medication_name,
+        rxId: res.data.surescripts_rx_id || res.data.id,
+        latencyMs: res.data.integration?.latencyMs,
+      });
+      setShowRxModal(false);
+      setRxForm({ medicationName: '', genericName: '', dosageForm: '', strength: '', sig: '', quantity: '30', daysSupply: '30', refills: '0', pharmacyName: '', pharmacyNcpdp: '', pharmacyAddress: '', ndcCode: '', icd10Codes: '', notes: '' });
+    } finally {
+      setSubmittingRx(false);
+    }
   };
 
   const saveNote = async () => {
@@ -258,22 +324,40 @@ export default function PatientChart() {
       )}
 
       {tab === 'medications' && (
-        <div className="card overflow-hidden">
-          <table className="data-table">
-            <thead><tr><th>Medication</th><th>Dosage</th><th>Frequency</th><th>Route</th><th>Started</th><th>Status</th></tr></thead>
-            <tbody>
-              {meds.map(m => (
-                <tr key={m.id}>
-                  <td><div className="font-medium text-gray-900">{m.name}</div><div className="text-xs text-gray-400">{m.generic_name}</div></td>
-                  <td>{m.dosage}</td>
-                  <td>{m.frequency}</td>
-                  <td className="capitalize">{m.route}</td>
-                  <td className="text-xs text-gray-500">{m.start_date ? format(parseISO(m.start_date), 'MM/dd/yyyy') : '—'}</td>
-                  <td><MedStatusBadge status={m.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            {rxConfirmation && (
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg" data-testid="rx-confirmation-banner">
+                <CheckCircle size={15} className="flex-shrink-0" />
+                Prescription sent to Surescripts —{' '}
+                <strong data-testid="rx-confirmation-medication">{rxConfirmation.medicationName}</strong>
+                {' · Rx #'}
+                <span data-testid="rx-confirmation-rx-id">{rxConfirmation.rxId}</span>
+                {rxConfirmation.latencyMs && <span data-testid="rx-confirmation-latency"> ({rxConfirmation.latencyMs}ms)</span>}
+              </div>
+            )}
+            {!rxConfirmation && <span />}
+            <button onClick={() => { setShowRxModal(true); setRxConfirmation(null); }} className="btn-primary" data-testid="new-rx-button">
+              <Send size={16} /> New Prescription
+            </button>
+          </div>
+          <div className="card overflow-hidden">
+            <table className="data-table">
+              <thead><tr><th>Medication</th><th>Dosage</th><th>Frequency</th><th>Route</th><th>Started</th><th>Status</th></tr></thead>
+              <tbody>
+                {meds.map(m => (
+                  <tr key={m.id}>
+                    <td><div className="font-medium text-gray-900">{m.name}</div><div className="text-xs text-gray-400">{m.generic_name}</div></td>
+                    <td>{m.dosage}</td>
+                    <td>{m.frequency}</td>
+                    <td className="capitalize">{m.route}</td>
+                    <td className="text-xs text-gray-500">{m.start_date ? format(parseISO(m.start_date), 'MM/dd/yyyy') : '—'}</td>
+                    <td><MedStatusBadge status={m.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -281,9 +365,12 @@ export default function PatientChart() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             {orderConfirmation && (
-              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg">
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg" data-testid="order-confirmation-banner">
                 <CheckCircle size={15} className="flex-shrink-0" />
-                Order sent to <strong>{orderConfirmation.vendor}</strong> — #{orderConfirmation.orderNumber} ({orderConfirmation.latencyMs}ms)
+                Order sent to <strong data-testid="order-confirmation-vendor">{orderConfirmation.vendor}</strong>
+                {' — #'}
+                <span data-testid="order-confirmation-order-number">{orderConfirmation.orderNumber}</span>
+                <span data-testid="order-confirmation-latency"> ({orderConfirmation.latencyMs}ms)</span>
               </div>
             )}
             {!orderConfirmation && <span />}
@@ -371,7 +458,7 @@ export default function PatientChart() {
           </>
         }
       >
-        <div className="space-y-4">
+        <div className="space-y-4" data-testid="order-modal">
           {/* Quick-select presets */}
           <div>
             <label className="form-label">Common Tests</label>
@@ -381,6 +468,7 @@ export default function PatientChart() {
                   key={p.testCode}
                   type="button"
                   onClick={() => applyPreset(p)}
+                  data-testid={`order-preset-${p.testCode.toLowerCase()}`}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
                     orderForm.testCode === p.testCode
                       ? 'bg-cisco-blue text-white border-cisco-blue'
@@ -411,11 +499,12 @@ export default function PatientChart() {
                 value={orderForm.panelName}
                 onChange={e => setOrderForm(f => ({ ...f, panelName: e.target.value }))}
                 placeholder="e.g. Hematology"
+                data-testid="order-panel-name"
               />
             </div>
             <div>
               <label className="form-label">Specimen Type</label>
-              <select className="form-input" value={orderForm.specimenType} onChange={e => setOrderForm(f => ({ ...f, specimenType: e.target.value }))}>
+              <select className="form-input" value={orderForm.specimenType} onChange={e => setOrderForm(f => ({ ...f, specimenType: e.target.value }))} data-testid="order-specimen-type">
                 <option value="blood">Blood (venipuncture)</option>
                 <option value="urine">Urine</option>
                 <option value="swab">Swab</option>
@@ -445,6 +534,7 @@ export default function PatientChart() {
                 value={orderForm.icd10Codes}
                 onChange={e => setOrderForm(f => ({ ...f, icd10Codes: e.target.value }))}
                 placeholder="e.g. E11.65, Z13.220"
+                data-testid="order-icd10-codes"
               />
             </div>
             <div className="col-span-2">
@@ -455,7 +545,122 @@ export default function PatientChart() {
                 value={orderForm.notes}
                 onChange={e => setOrderForm(f => ({ ...f, notes: e.target.value }))}
                 placeholder="Additional instructions for the lab..."
+                data-testid="order-notes"
               />
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showRxModal} onClose={() => setShowRxModal(false)} title="New ePrescription — Surescripts" size="lg"
+        footer={
+          <>
+            <button onClick={() => setShowRxModal(false)} className="btn-secondary" disabled={submittingRx} data-testid="cancel-rx-button">Cancel</button>
+            <button
+              onClick={submitRx}
+              disabled={submittingRx || !rxForm.medicationName || !rxForm.sig || !rxForm.quantity}
+              className="btn-primary"
+              data-testid="submit-rx-button"
+            >
+              {submittingRx ? (
+                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Transmitting...</>
+              ) : (
+                <><Send size={15} /> Submit ePrescription</>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4" data-testid="rx-modal">
+          <div>
+            <label className="form-label">Quick-fill Medication</label>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              {COMMON_MEDICATIONS.map(med => (
+                <button
+                  key={med.name}
+                  type="button"
+                  onClick={() => fillMed(med)}
+                  data-testid={`rx-quickfill-${med.name.replace(/\s+/g, '-').toLowerCase()}`}
+                  className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
+                    rxForm.medicationName === med.name
+                      ? 'border-cisco-blue bg-blue-50'
+                      : 'border-gray-200 hover:border-cisco-blue hover:bg-blue-50'
+                  }`}
+                >
+                  <div className="font-medium text-gray-800">{med.name}</div>
+                  <div className="text-gray-500">{med.strength} · {med.dosageForm}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Medication Name *</label>
+              <input className="form-input" value={rxForm.medicationName} onChange={e => setRxForm(f => ({ ...f, medicationName: e.target.value }))} placeholder="Brand name" data-testid="rx-medication-name" />
+            </div>
+            <div>
+              <label className="form-label">Generic Name</label>
+              <input className="form-input" value={rxForm.genericName} onChange={e => setRxForm(f => ({ ...f, genericName: e.target.value }))} placeholder="Generic name" data-testid="rx-generic-name" />
+            </div>
+            <div>
+              <label className="form-label">Strength</label>
+              <input className="form-input" value={rxForm.strength} onChange={e => setRxForm(f => ({ ...f, strength: e.target.value }))} placeholder="e.g. 500mg" data-testid="rx-strength" />
+            </div>
+            <div>
+              <label className="form-label">Dosage Form</label>
+              <input className="form-input" value={rxForm.dosageForm} onChange={e => setRxForm(f => ({ ...f, dosageForm: e.target.value }))} placeholder="Tablet, Capsule..." data-testid="rx-dosage-form" />
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label">Sig (Directions) *</label>
+            <input className="form-input" value={rxForm.sig} onChange={e => setRxForm(f => ({ ...f, sig: e.target.value }))} placeholder="Take 1 tablet by mouth twice daily" data-testid="rx-sig" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="form-label">Quantity *</label>
+              <input className="form-input" type="number" min="1" value={rxForm.quantity} onChange={e => setRxForm(f => ({ ...f, quantity: e.target.value }))} data-testid="rx-quantity" />
+            </div>
+            <div>
+              <label className="form-label">Days Supply</label>
+              <input className="form-input" type="number" min="1" value={rxForm.daysSupply} onChange={e => setRxForm(f => ({ ...f, daysSupply: e.target.value }))} data-testid="rx-days-supply" />
+            </div>
+            <div>
+              <label className="form-label">Refills</label>
+              <input className="form-input" type="number" min="0" max="11" value={rxForm.refills} onChange={e => setRxForm(f => ({ ...f, refills: e.target.value }))} data-testid="rx-refills" />
+            </div>
+          </div>
+
+          <div>
+            <label className="form-label">Pharmacy</label>
+            <div className="grid grid-cols-2 gap-2">
+              {PHARMACIES.map(ph => (
+                <button
+                  key={ph.ncpdp}
+                  type="button"
+                  onClick={() => fillPharmacy(ph)}
+                  data-testid={`rx-pharmacy-${ph.ncpdp}`}
+                  className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
+                    rxForm.pharmacyNcpdp === ph.ncpdp ? 'border-cisco-blue bg-blue-50' : 'border-gray-200 hover:border-cisco-blue'
+                  }`}
+                >
+                  <div className="font-medium text-gray-800">{ph.name}</div>
+                  <div className="text-gray-500 truncate">{ph.address}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">ICD-10 Codes</label>
+              <input className="form-input" value={rxForm.icd10Codes} onChange={e => setRxForm(f => ({ ...f, icd10Codes: e.target.value }))} placeholder="E11.9, I10" data-testid="rx-icd10-codes" />
+            </div>
+            <div>
+              <label className="form-label">NDC Code</label>
+              <input className="form-input" value={rxForm.ndcCode} onChange={e => setRxForm(f => ({ ...f, ndcCode: e.target.value }))} placeholder="00000-0000-00" data-testid="rx-ndc-code" />
             </div>
           </div>
         </div>

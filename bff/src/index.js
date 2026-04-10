@@ -30,7 +30,7 @@ app.use(requestLogger);
 const healthHandler = (req, res) => {
   res.json({
     status: 'healthy',
-    service: 'careconnect-front-end',
+    service: 'careconnect-frontend',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),

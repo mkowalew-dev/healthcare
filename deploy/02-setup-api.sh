@@ -179,25 +179,47 @@ chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 # ── Configure PM2 ────────────────────────────────────────────
 info "Configuring PM2..."
 cat > "${APP_DIR}/ecosystem.config.js" <<EOF
+// CareConnect API — PM2 ecosystem
+// One process per domain service. Each carries its own OTEL_SERVICE_NAME so
+// Splunk APM shows a distinct node in the service map for every service.
+// The gateway (careconnect-api) proxies all inbound traffic to these services.
+const BASE = '${APP_DIR}';
+const common = {
+  cwd: BASE,
+  env_file: BASE + '/.env',
+  max_memory_restart: '256M',
+  log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+  error_file: '/var/log/careconnect/api-error.log',
+  out_file: '/var/log/careconnect/api-out.log',
+  merge_logs: true,
+  restart_delay: 3000,
+  max_restarts: 10,
+};
+
 module.exports = {
-  apps: [{
-    name: 'careconnect-api',
-    script: 'src/index.js',
-    cwd: '${APP_DIR}',
-    instances: 2,
-    exec_mode: 'cluster',
-    env: {
-      NODE_ENV: 'production',
-    },
-    env_file: '${APP_DIR}/.env',
-    max_memory_restart: '512M',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-    error_file: '/var/log/careconnect/api-error.log',
-    out_file: '/var/log/careconnect/api-out.log',
-    merge_logs: true,
-    restart_delay: 3000,
-    max_restarts: 10,
-  }]
+  apps: [
+    // ── API Gateway (external port 3001) ──────────────────────────────────
+    { ...common, name: 'careconnect-api',           script: 'src/index.js',                     instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-api-gwy' } },
+
+    // ── Internal domain services (loopback only) ──────────────────────────
+    { ...common, name: 'careconnect-patients',      script: 'src/services/patients-service.js',  instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-patients',      PATIENTS_SERVICE_PORT:      '3011' } },
+    { ...common, name: 'careconnect-labs',          script: 'src/services/labs-service.js',       instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-labs',          LABS_SERVICE_PORT:          '3012' } },
+    { ...common, name: 'careconnect-rx',            script: 'src/services/rx-service.js',         instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-rx',            RX_SERVICE_PORT:            '3013' } },
+    { ...common, name: 'careconnect-notifications', script: 'src/services/notifications-service.js', instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-notifications', NOTIFICATIONS_SERVICE_PORT: '3014' } },
+    { ...common, name: 'careconnect-fhir',          script: 'src/services/fhir-service.js',       instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-fhir',          FHIR_SERVICE_PORT:          '3015' } },
+    { ...common, name: 'careconnect-admin',         script: 'src/services/admin-service.js',      instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-admin',         ADMIN_SERVICE_PORT:         '3016' } },
+    { ...common, name: 'careconnect-billing',       script: 'src/services/billing-service.js',    instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-billing',       BILLING_SERVICE_PORT:       '3017' } },
+    { ...common, name: 'careconnect-ai',            script: 'src/services/ai-service.js',         instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-ai',            AI_SERVICE_PORT:            '3018' } },
+  ],
 };
 EOF
 
@@ -219,8 +241,8 @@ Type=simple
 User=${APP_USER}
 WorkingDirectory=${APP_DIR}
 ExecStart=/usr/bin/pm2-runtime start ${APP_DIR}/ecosystem.config.js --env production
-ExecReload=/usr/bin/pm2 reload careconnect-api
-ExecStop=/usr/bin/pm2 stop careconnect-api
+ExecReload=/usr/bin/pm2 reload all
+ExecStop=/usr/bin/pm2 stop all
 Restart=on-failure
 RestartSec=10s
 StandardOutput=journal

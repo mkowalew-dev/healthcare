@@ -50,6 +50,53 @@ case "$ROLE" in
     npm install --omit=dev --quiet
     chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 
+    # Regenerate PM2 ecosystem config (ports and service names are stable; APP_DIR is VM-specific)
+    info "Regenerating PM2 ecosystem config..."
+    cat > "${APP_DIR}/ecosystem.config.js" <<'ECOEOF'
+// CareConnect API — PM2 ecosystem
+// One process per domain service. Each carries its own OTEL_SERVICE_NAME so
+// Splunk APM shows a distinct node in the service map for every service.
+// The gateway (careconnect-api) proxies all inbound traffic to these services.
+ECOEOF
+    cat >> "${APP_DIR}/ecosystem.config.js" <<ECOEOF
+const BASE = '${APP_DIR}';
+const common = {
+  cwd: BASE,
+  env_file: BASE + '/.env',
+  max_memory_restart: '256M',
+  log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+  error_file: '/var/log/careconnect/api-error.log',
+  out_file: '/var/log/careconnect/api-out.log',
+  merge_logs: true,
+  restart_delay: 3000,
+  max_restarts: 10,
+};
+
+module.exports = {
+  apps: [
+    { ...common, name: 'careconnect-api',           script: 'src/index.js',                          instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-api-gwy' } },
+    { ...common, name: 'careconnect-patients',      script: 'src/services/patients-service.js',      instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-patients',      PATIENTS_SERVICE_PORT:      '3011' } },
+    { ...common, name: 'careconnect-labs',          script: 'src/services/labs-service.js',          instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-labs',          LABS_SERVICE_PORT:          '3012' } },
+    { ...common, name: 'careconnect-rx',            script: 'src/services/rx-service.js',            instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-rx',            RX_SERVICE_PORT:            '3013' } },
+    { ...common, name: 'careconnect-notifications', script: 'src/services/notifications-service.js', instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-notifications', NOTIFICATIONS_SERVICE_PORT: '3014' } },
+    { ...common, name: 'careconnect-fhir',          script: 'src/services/fhir-service.js',          instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-fhir',          FHIR_SERVICE_PORT:          '3015' } },
+    { ...common, name: 'careconnect-admin',         script: 'src/services/admin-service.js',         instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-admin',         ADMIN_SERVICE_PORT:         '3016' } },
+    { ...common, name: 'careconnect-billing',       script: 'src/services/billing-service.js',       instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-billing',       BILLING_SERVICE_PORT:       '3017' } },
+    { ...common, name: 'careconnect-ai',            script: 'src/services/ai-service.js',            instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-ai',            AI_SERVICE_PORT:            '3018' } },
+  ],
+};
+ECOEOF
+    log "ecosystem.config.js regenerated (9 services)"
+
     # Re-seed the database with fresh demo data
     info "Re-seeding database..."
     cd "${APP_DIR}"
@@ -79,6 +126,15 @@ case "$ROLE" in
       log "Mock URLs set to ${MOCK_BASE}"
     fi
 
+    # Update DATABASE_URL if DB_HOST is provided (ensures FQDN is used instead of IP
+    # so the OTel pg instrumentation reports a named host in the Splunk service map)
+    if [[ -n "${DB_HOST:-}" ]]; then
+      # Extract existing password from current DATABASE_URL to avoid losing it
+      EXISTING_PW=$(grep "^DATABASE_URL=" "${APP_DIR}/.env" | sed 's|.*://[^:]*:\([^@]*\)@.*|\1|')
+      set_env DATABASE_URL "postgresql://${DB_USER:-careconnect}:${EXISTING_PW}@${DB_HOST}:5432/${DB_NAME:-careconnect}" "${APP_DIR}/.env"
+      log "DATABASE_URL updated to use host ${DB_HOST}"
+    fi
+
     # Update FHIR_BASE_URL if FRONTEND_HOST is provided
     if [[ -n "${FRONTEND_HOST:-}" ]]; then
       set_env() {
@@ -100,11 +156,11 @@ case "$ROLE" in
       log "Lab simulator: interval=${LAB_RESULT_INTERVAL_MS}ms, min_age=${LAB_MIN_AGE_MS:-${LAB_RESULT_INTERVAL_MS}}ms"
     fi
 
-    # Restart via systemd — matches how 02-setup-api.sh starts the service (pm2-runtime)
+    # Restart via systemd — pm2-runtime re-reads ecosystem.config.js and starts all services
     systemctl restart careconnect-api
-    sleep 2
+    sleep 3
     systemctl is-active --quiet careconnect-api && \
-      log "API restarted successfully" || \
+      log "API gateway + all domain services restarted" || \
       err "API failed to restart — check: journalctl -u careconnect-api -n 50"
     ;;
 

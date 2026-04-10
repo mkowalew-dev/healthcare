@@ -81,6 +81,9 @@ deploy_api() {
       MOCK_HOST='${MOCK_PRIVATE_IP:-}' \
       MOCK_PORT='${MOCK_PORT:-3002}' \
       FRONTEND_HOST='${FRONTEND_HOST}' \
+      DB_HOST='${DB_HOST:-}' \
+      DB_NAME='${DB_NAME:-careconnect}' \
+      DB_USER='${DB_USER:-careconnect}' \
       LAB_RESULT_INTERVAL_MS='${LAB_RESULT_INTERVAL_MS:-900000}' \
       LAB_MIN_AGE_MS='${LAB_MIN_AGE_MS:-900000}' \
     bash ~/careconnect/deploy/04-update.sh api"
