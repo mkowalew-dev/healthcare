@@ -4,32 +4,36 @@ import { useAuth } from '../context/AuthContext';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { Shield, Eye, EyeOff, ChevronRight } from 'lucide-react';
 
-const DEMO_ACCOUNTS = [
-  {
-    role: 'Patient',
-    email: 'patient@demo.com',
-    password: 'Demo123!',
-    name: 'John Smith',
-    color: 'bg-cisco-blue',
-    description: 'Access MyHealth portal',
+// Detect which portal we're on at runtime using the baked-in hostname env var.
+const PATIENT_HOST = import.meta.env.VITE_PATIENT_HOST;
+const currentPortal = PATIENT_HOST && window.location.hostname === PATIENT_HOST
+  ? 'patient'
+  : PATIENT_HOST
+  ? 'clinical'
+  : 'all';
+
+const PORTAL_CONFIG = {
+  patient: {
+    title: 'MyChart',
+    subtitle: 'Patient Portal',
+    hero: 'Your health.\nYour way.',
+    heroSub: 'View test results, request appointments, message your care team, and manage your health all in one place.',
   },
-  {
-    role: 'Provider',
-    email: 'provider@demo.com',
-    password: 'Demo123!',
-    name: 'Dr. Michael Chen',
-    color: 'bg-cisco-dark-blue',
-    description: 'Clinical workspace',
+  clinical: {
+    title: 'CareConnect',
+    subtitle: 'Clinical Workspace',
+    hero: 'Enterprise Healthcare,\nReimagined.',
+    heroSub: 'A comprehensive EHR system with clinical workflows, ePrescribing, and real-time observability powered by ThousandEyes and Splunk.',
   },
-  {
-    role: 'Admin',
-    email: 'admin@demo.com',
-    password: 'Demo123!',
-    name: 'System Admin',
-    color: 'bg-gray-700',
-    description: 'System administration',
+  all: {
+    title: 'CareConnect EHR',
+    subtitle: 'Secure Sign In',
+    hero: 'Enterprise Healthcare,\nReimagined.',
+    heroSub: 'A comprehensive EHR system with patient portals, clinical workflows, and real-time observability powered by ThousandEyes and Splunk.',
   },
-];
+};
+
+const portal = PORTAL_CONFIG[currentPortal];
 
 // Cisco-style logo
 function CiscoMark({ size = 40 }: { size?: number }) {
@@ -54,12 +58,10 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e?: React.FormEvent, preEmail?: string, prePassword?: string) => {
-    e?.preventDefault();
-    const loginEmail = preEmail || email;
-    const loginPassword = prePassword || password;
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-    if (!loginEmail || !loginPassword) {
+    if (!email || !password) {
       setError('Please enter your email and password');
       return;
     }
@@ -68,25 +70,13 @@ export default function Login() {
     setError('');
 
     try {
-      await login(loginEmail, loginPassword);
-      // Determine redirect based on role
-      const stored = localStorage.getItem('cc_token');
-      if (stored) {
-        const payload = JSON.parse(atob(stored.split('.')[1]));
-        const role = payload.role;
-        navigate(role === 'provider' ? '/provider/dashboard' : role === 'admin' ? '/admin/dashboard' : '/patient/dashboard');
-      }
+      await login(email, password);
+      navigate('/');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleDemoLogin = (account: typeof DEMO_ACCOUNTS[0]) => {
-    setEmail(account.email);
-    setPassword(account.password);
-    handleLogin(undefined, account.email, account.password);
   };
 
   return (
@@ -109,21 +99,25 @@ export default function Login() {
           <div className="flex items-center gap-3 mb-auto">
             <CiscoMark size={40} />
             <div>
-              <div className="text-white font-bold text-xl leading-tight">CareConnect</div>
-              <div className="text-white/50 text-xs tracking-widest uppercase">EHR Platform</div>
+              <div className="text-white font-bold text-xl leading-tight">{portal.title}</div>
+              <div className="text-white/50 text-xs tracking-widest uppercase">{portal.subtitle}</div>
             </div>
           </div>
 
           {/* Hero content */}
           <div className="mb-auto text-center">
             <h1 className="text-4xl font-bold text-white leading-tight mb-4">
-              Enterprise Healthcare,<br />
-              <span className="text-cisco-cyan">Reimagined.</span>
+              {portal.hero.split('\n').map((line, i) => (
+                <span key={i}>
+                  {i > 0 && <br />}
+                  {i === portal.hero.split('\n').length - 1
+                    ? <span className="text-cisco-cyan">{line}</span>
+                    : line}
+                </span>
+              ))}
             </h1>
             <p className="text-white/60 text-base leading-relaxed">
-              A comprehensive EHR system with patient portals,
-              clinical workflows, and real-time observability
-              powered by ThousandEyes and Splunk.
+              {portal.heroSub}
             </p>
           </div>
 
@@ -155,12 +149,12 @@ export default function Login() {
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <CiscoMark size={32} />
-            <span className="font-bold text-cisco-dark-blue text-xl">CareConnect EHR</span>
+            <span className="font-bold text-cisco-dark-blue text-xl">{portal.title}</span>
           </div>
 
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-cisco-dark-blue mb-1">CareConnect EHR</h2>
-            <p className="text-sm text-gray-500">Secure Patient Portal</p>
+            <h2 className="text-2xl font-bold text-cisco-dark-blue mb-1">{portal.title}</h2>
+            <p className="text-sm text-gray-500">{portal.subtitle}</p>
           </div>
 
           {/* Login form */}
@@ -229,37 +223,6 @@ export default function Login() {
             </button>
             </div>
           </form>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-xs text-gray-400 font-medium">DEMO ACCESS</span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-
-          {/* Demo accounts */}
-          <div className="space-y-2">
-            {DEMO_ACCOUNTS.map((account) => (
-              <button
-                key={account.role}
-                onClick={() => handleDemoLogin(account)}
-                disabled={loading}
-                className="w-full flex items-center gap-3 p-3 border border-gray-200 rounded-lg
-                           hover:border-cisco-blue hover:bg-cisco-blue/5 transition-all duration-150
-                           text-left disabled:opacity-50 group"
-                data-testid={`demo-login-${account.role.toLowerCase()}`}
-              >
-                <div className={`w-9 h-9 rounded-lg ${account.color} flex items-center justify-center flex-shrink-0`}>
-                  <span className="text-white text-xs font-bold">{account.role[0]}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-gray-800">{account.name}</div>
-                  <div className="text-xs text-gray-500">{account.email} &middot; {account.description}</div>
-                </div>
-                <ChevronRight size={14} className="text-gray-300 group-hover:text-cisco-blue flex-shrink-0" />
-              </button>
-            ))}
-          </div>
 
           {/* Footer */}
           <p className="text-center text-xs text-gray-400 mt-8">

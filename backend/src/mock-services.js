@@ -21,7 +21,6 @@
  */
 
 require('dotenv').config();
-require('./mock-tracing'); // Splunk APM — must load before express
 const express = require('express');
 const app = express();
 const PORT = process.env.MOCK_PORT || 3002;

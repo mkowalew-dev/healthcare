@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [react()],
@@ -16,6 +17,17 @@ export default defineConfig({
       '/bff': {
         target: 'http://localhost:3003',
         changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    rollupOptions: {
+      // Multi-page build: two separate HTML entry points, one bundle per portal.
+      // Nginx serves index.html for careconnect.pseudo-co.com and
+      // patient.html for mychart.pseudo-co.com from the same dist/ directory.
+      input: {
+        main:    resolve(__dirname, 'index.html'),    // CareConnect clinical portal
+        patient: resolve(__dirname, 'patient.html'),  // MyChart patient portal
       },
     },
   },

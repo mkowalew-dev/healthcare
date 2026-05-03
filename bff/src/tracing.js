@@ -32,8 +32,28 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     process.env.OTEL_EXPORTER_OTLP_HEADERS = `X-SF-Token=${ACCESS_TOKEN}`;
   }
 
+  // Derive the upstream API port from API_URL so peer.service is set correctly
+  // on every outgoing proxy request, making the BFF→API edge named in the service map.
+  const API_URL = process.env.API_URL || 'http://localhost:3001';
+  let apiPort;
+  try { apiPort = parseInt(new URL(API_URL).port || '3001', 10); } catch (_) { apiPort = 3001; }
+
   try {
-    start({ serviceName: SERVICE_NAME, accessToken: ACCESS_TOKEN, endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT });
+    const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
+    start({
+      serviceName: SERVICE_NAME,
+      accessToken: ACCESS_TOKEN,
+      endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+      instrumentations: [getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-http': {
+          requestHook: (span, _request) => {
+            if (span.attributes?.['net.peer.port'] === apiPort) {
+              span.setAttribute('peer.service', 'careconnect-api-gwy');
+            }
+          },
+        },
+      })],
+    });
     console.log(`[tracing] Splunk APM started — service=${SERVICE_NAME}, realm=${REALM}`);
   } catch (err) {
     console.error('[tracing] Failed to start Splunk APM:', err.message);

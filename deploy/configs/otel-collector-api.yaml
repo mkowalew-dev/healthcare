@@ -40,7 +40,7 @@ receivers:
       processes:
 
   # ── Node.js API logs (structured JSON from Winston) ────────
-  filelog/api:
+  file_log/api:
     include:
       - /var/log/careconnect/api-out.log
       - /var/log/careconnect/api-error.log
@@ -48,6 +48,7 @@ receivers:
     start_at: end
     operators:
       - type: json_parser
+        on_error: drop_quiet
         timestamp:
           parse_from: attributes.timestamp
           layout: '%Y-%m-%dT%H:%M:%S.%LZ'
@@ -65,18 +66,6 @@ receivers:
         from: attributes.span_id
         to: attributes["span_id"]
 
-  # ── PM2 process metrics via prometheus endpoint ─────────────
-  prometheus:
-    config:
-      scrape_configs:
-        - job_name: pm2
-          scrape_interval: 15s
-          static_configs:
-            - targets: ['localhost:9209']
-          metric_relabel_configs:
-            - source_labels: [__name__]
-              target_label: service
-              replacement: careconnect-api
 
 processors:
   memory_limiter:
@@ -89,7 +78,7 @@ processors:
     timeout: 5s
 
   resourcedetection:
-    detectors: [system, env, aws, azure]
+    detectors: [system, env, ec2]
     timeout: 10s
     override: false
 
@@ -98,9 +87,12 @@ processors:
       - key: deployment.environment
         value: ${env:APP_ENV}
         action: upsert
+      - key: service.version
+        value: ${env:APP_VERSION}
+        action: upsert
       - key: service.name
         value: careconnect-api
-        action: upsert
+        action: insert
       - key: host.role
         value: api
         action: insert
@@ -122,22 +114,22 @@ processors:
         probabilistic: {sampling_percentage: 20}
 
 exporters:
-  otlphttp/splunk_apm:
-    endpoint: https://ingest.${env:SPLUNK_REALM}.signalfx.com/v2/trace/otlpproto
+  otlp_http/splunk_apm:
+    traces_endpoint: https://ingest.${env:SPLUNK_REALM}.signalfx.com/v2/trace/otlpproto
     headers:
       X-SF-Token: ${env:SPLUNK_ACCESS_TOKEN}
 
   signalfx:
     access_token: ${env:SPLUNK_ACCESS_TOKEN}
     realm: ${env:SPLUNK_REALM}
+    timeout: 30s
 
   splunk_hec/platform:
     token: ${env:SPLUNK_PLATFORM_HEC_TOKEN}
     endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
     source: careconnect-api
     sourcetype: careconnect:json
-    index: careconnect
-    max_connections: 20
+    index: main
     timeout: 10s
     tls:
       insecure_skip_verify: false
@@ -148,13 +140,13 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, resourcedetection, resource/api, tail_sampling, batch]
-      exporters: [otlphttp/splunk_apm]
+      exporters: [otlp_http/splunk_apm]
     metrics:
-      receivers: [hostmetrics, prometheus]
+      receivers: [hostmetrics]
       processors: [memory_limiter, resourcedetection, resource/api, batch]
       exporters: [signalfx]
     logs:
-      receivers: [filelog/api]
+      receivers: [file_log/api]
       processors: [memory_limiter, resourcedetection, resource/api, batch]
       exporters: [splunk_hec/platform]
 

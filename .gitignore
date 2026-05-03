@@ -9,6 +9,7 @@
 .env.*.local
 backend/.env
 deploy/config.env
+deploy/config.env.old
 
 # ── Node.js dependencies ─────────────────────────────────────
 node_modules/

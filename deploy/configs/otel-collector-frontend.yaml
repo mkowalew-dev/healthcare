@@ -47,7 +47,7 @@ processors:
 
   # ── Auto-detect host/cloud resource attributes ──────────────
   resourcedetection:
-    detectors: [system, env, aws, azure]
+    detectors: [system, env, ec2]
     timeout: 10s
     override: false
 
@@ -56,6 +56,9 @@ processors:
     attributes:
       - key: deployment.environment
         value: ${env:APP_ENV}
+        action: upsert
+      - key: service.version
+        value: ${env:APP_VERSION}
         action: upsert
       - key: service.name
         value: careconnect-frontend
@@ -69,6 +72,7 @@ exporters:
   signalfx:
     access_token: ${env:SPLUNK_ACCESS_TOKEN}
     realm: ${env:SPLUNK_REALM}
+    timeout: 30s
 
 service:
   extensions: [health_check, zpages]

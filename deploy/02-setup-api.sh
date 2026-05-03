@@ -14,10 +14,16 @@ DB_NAME="${DB_NAME:-careconnect}"
 DB_USER="${DB_USER:-careconnect}"
 DB_PASSWORD="${DB_PASSWORD:-CHANGE_THIS_STRONG_PASSWORD}"
 JWT_SECRET="${JWT_SECRET:-CHANGE_THIS_JWT_SECRET}"
-FRONTEND_PRIVATE_IP="${FRONTEND_PRIVATE_IP:-10.0.1.10}"
-FRONTEND_HOST="${FRONTEND_HOST:-}"   # Public hostname of VM1 — used for CORS
+# Comma-separated list of frontend VM private IPs.
+# Accepts FRONTEND_PRIVATE_IPS (plural, multi-VM) or FRONTEND_PRIVATE_IP (legacy).
+FRONTEND_PRIVATE_IPS="${FRONTEND_PRIVATE_IPS:-${FRONTEND_PRIVATE_IP:-10.0.1.10}}"
+# Dual-portal hostnames for CORS. Both are required to allow browser requests from
+# mychart.pseudo-co.com and careconnect.pseudo-co.com to reach the same API.
+CLINICAL_HOST="${CLINICAL_HOST:-${FRONTEND_HOST:-}}"   # careconnect.pseudo-co.com
+PATIENT_HOST="${PATIENT_HOST:-}"                        # mychart.pseudo-co.com
 SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN:-}"
 SPLUNK_REALM="${SPLUNK_REALM:-us1}"
+APP_VERSION="${APP_VERSION:-1.0.0}"
 APP_DIR="${APP_DIR:-/opt/careconnect/api}"
 APP_USER="${APP_USER:-careconnect}"
 PORT="${PORT:-3001}"
@@ -33,7 +39,6 @@ ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 # Use localhost only if mock is co-located on this VM
 MOCK_HOST="${MOCK_HOST:-}"
 MOCK_PORT="${MOCK_PORT:-3002}"
-[[ -z "$MOCK_HOST" ]] && warn "MOCK_HOST not set — integration URLs will point to localhost. Set MOCK_HOST to the VM4 private IP."
 MOCK_BASE="http://${MOCK_HOST:-localhost}:${MOCK_PORT}"
 # ───────────────────────────────────────────────────────────
 
@@ -54,6 +59,8 @@ info() { echo -e "${BLUE}[$(date '+%H:%M:%S')] → $1${NC}"; }
   err "Set DB_PASSWORD before running (env var or edit script)"
 [[ "$JWT_SECRET" == "CHANGE_THIS_JWT_SECRET" ]] && \
   err "Set JWT_SECRET before running (env var or edit script)"
+[[ -z "$MOCK_HOST" ]] && \
+  warn "MOCK_HOST not set — integration URLs will point to localhost. Set MOCK_HOST to the VM4 private IP."
 
 # Resolve backend source: env var takes precedence, then relative path
 if [[ -z "$BACKEND_SRC" ]]; then
@@ -73,7 +80,7 @@ echo ""
 info "Updating system packages..."
 apt-get update -qq
 apt-get upgrade -y -qq
-apt-get install -y -qq curl gnupg lsb-release ufw
+apt-get install -y -qq curl gnupg lsb-release
 
 # Add the official PostgreSQL apt repository if postgresql-client-17 isn't available
 if ! apt-cache show postgresql-client-17 &>/dev/null; then
@@ -125,13 +132,18 @@ log "Application files deployed to ${APP_DIR}"
 
 # ── Write environment file ────────────────────────────────────
 info "Writing environment configuration..."
+DB_PASSWORD_ENCODED=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "${DB_PASSWORD}")
 cat > "${APP_DIR}/.env" <<EOF
 NODE_ENV=production
 PORT=${PORT}
-DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD_ENCODED}@${DB_HOST}:5432/${DB_NAME}
 JWT_SECRET=${JWT_SECRET}
-CORS_ORIGIN=https://${FRONTEND_HOST:-$HOSTNAME}
+CORS_ORIGIN=$(
+  _c="https://${CLINICAL_HOST:-$HOSTNAME}"
+  [[ -n "${PATIENT_HOST:-}" ]] && echo "${_c},https://${PATIENT_HOST}" || echo "${_c}"
+)
 LOG_LEVEL=info
+APP_VERSION=${APP_VERSION}
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN}
 SPLUNK_REALM=${SPLUNK_REALM}
@@ -143,8 +155,8 @@ LABCORP_LIS_URL=${MOCK_BASE}/labcorp
 TWILIO_API_URL=${MOCK_BASE}/twilio
 SENDGRID_API_URL=${MOCK_BASE}/sendgrid
 
-# FHIR base URL — shown on the Integration Health page
-FHIR_BASE_URL=https://${FRONTEND_HOST:-$HOSTNAME}/fhir
+# FHIR base URL — shown on the Integration Health page (clinical portal)
+FHIR_BASE_URL=https://${CLINICAL_HOST:-${FRONTEND_HOST:-$HOSTNAME}}/fhir
 
 # Lab result simulator — results pending labs on a background interval
 LAB_RESULT_INTERVAL_MS=${LAB_RESULT_INTERVAL_MS:-900000}
@@ -203,8 +215,12 @@ module.exports = {
       env: { OTEL_SERVICE_NAME: 'careconnect-api-gwy' } },
 
     // ── Internal domain services (loopback only) ──────────────────────────
-    { ...common, name: 'careconnect-patients',      script: 'src/services/patients-service.js',  instances: 1,
+    { ...common, name: 'careconnect-patients',      script: 'src/services/patients-service.js',      instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-patients',      PATIENTS_SERVICE_PORT:      '3011' } },
+    { ...common, name: 'careconnect-providers',     script: 'src/services/providers-service.js',     instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-providers',     PROVIDERS_SERVICE_PORT:     '3019' } },
+    { ...common, name: 'careconnect-appointments',  script: 'src/services/appointments-service.js',  instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-appointments',  APPOINTMENTS_SERVICE_PORT:  '3020' } },
     { ...common, name: 'careconnect-labs',          script: 'src/services/labs-service.js',       instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-labs',          LABS_SERVICE_PORT:          '3012' } },
     { ...common, name: 'careconnect-rx',            script: 'src/services/rx-service.js',         instances: 1,
@@ -223,9 +239,11 @@ module.exports = {
 };
 EOF
 
-# ── Create log directory ──────────────────────────────────────
+# ── Create log and PM2 home directories ──────────────────────
 mkdir -p /var/log/careconnect
 chown "${APP_USER}:${APP_USER}" /var/log/careconnect
+mkdir -p "${APP_DIR}/.pm2/pids" "${APP_DIR}/.pm2/logs"
+chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}/.pm2"
 
 # ── Write systemd service for PM2 ─────────────────────────────
 info "Configuring systemd service..."
@@ -241,8 +259,7 @@ Type=simple
 User=${APP_USER}
 WorkingDirectory=${APP_DIR}
 ExecStart=/usr/bin/pm2-runtime start ${APP_DIR}/ecosystem.config.js --env production
-ExecReload=/usr/bin/pm2 reload all
-ExecStop=/usr/bin/pm2 stop all
+Environment=PM2_HOME=${APP_DIR}/.pm2
 Restart=on-failure
 RestartSec=10s
 StandardOutput=journal
@@ -259,35 +276,10 @@ systemctl enable careconnect-api
 systemctl start careconnect-api
 log "PM2 service configured and started"
 
-# ── Firewall (UFW) ─────────────────────────────────────────────
-info "Configuring firewall..."
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-
-# SSH from anywhere (restrict to bastion IP in production)
-ufw allow 22/tcp comment 'SSH'
-
-# API port — Frontend VM private IP
-ufw allow from "${FRONTEND_PRIVATE_IP}" to any port ${PORT} comment 'API - Frontend VM only'
-
-# API port — Cloudflare IP ranges (for Cloudflare Tunnel / proxy)
-info "Adding Cloudflare IP ranges to firewall..."
-for ip in $(curl -sf https://www.cloudflare.com/ips-v4); do
-  ufw allow from "$ip" to any port ${PORT} comment 'Cloudflare' 2>/dev/null
-done
-for ip in $(curl -sf https://www.cloudflare.com/ips-v6); do
-  ufw allow from "$ip" to any port ${PORT} comment 'Cloudflare' 2>/dev/null
-done
-log "Cloudflare IP ranges added"
-
-ufw --force enable
-log "Firewall configured"
-
 # ── Health check ──────────────────────────────────────────────
 info "Verifying API is responding..."
-sleep 3
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/health" || echo "000")
+sleep 8
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/health" || true)
 if [[ "$HTTP_STATUS" == "200" ]]; then
   log "API health check passed (HTTP 200)"
 else
@@ -303,7 +295,8 @@ echo "  Host:         $(hostname)"
 echo "  API port:     ${PORT}"
 echo "  App dir:      ${APP_DIR}"
 echo "  Logs:         /var/log/careconnect/"
-echo "  PM2 status:   sudo -u ${APP_USER} pm2 status"
+echo "  Service:      systemctl status careconnect-api"
+echo "  App logs:     journalctl -u careconnect-api -f"
 echo ""
 echo "  Health check: curl http://$(hostname):${PORT}/health"
 echo ""

@@ -78,7 +78,7 @@ processors:
     timeout: 10s
 
   resourcedetection:
-    detectors: [system, env, aws, azure]
+    detectors: [system, env, ec2]
     timeout: 10s
     override: false
 
@@ -86,6 +86,9 @@ processors:
     attributes:
       - key: deployment.environment
         value: ${env:APP_ENV}
+        action: upsert
+      - key: service.version
+        value: ${env:APP_VERSION}
         action: upsert
       - key: service.name
         value: careconnect-db
@@ -101,13 +104,14 @@ exporters:
   signalfx:
     access_token: ${env:SPLUNK_ACCESS_TOKEN}
     realm: ${env:SPLUNK_REALM}
+    timeout: 30s
 
   splunk_hec/platform:
     token: ${env:SPLUNK_PLATFORM_HEC_TOKEN}
     endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
     source: postgresql
     sourcetype: postgresql:log
-    index: careconnect
+    index: main
     timeout: 10s
     tls:
       insecure_skip_verify: false

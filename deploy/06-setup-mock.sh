@@ -56,8 +56,12 @@ SENDGRID_LATENCY_MS="${SENDGRID_LATENCY_MS:-95}"
 SENDGRID_LATENCY_JITTER="${SENDGRID_LATENCY_JITTER:-30}"
 SENDGRID_REGION="${SENDGRID_REGION:-us-west-1 (Redwood City, CA)}"
 
-# API VM private IP — added to firewall allowlist
-API_PRIVATE_IP="${API_PRIVATE_IP:-10.0.1.20}"
+# Comma-separated API VM private IPs — used in pg_hba and service config.
+# Accepts API_PRIVATE_IPS (plural, multi-VM) or API_PRIVATE_IP (legacy single).
+API_PRIVATE_IPS="${API_PRIVATE_IPS:-${API_PRIVATE_IP:-10.0.1.20}}"
+
+SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN:-}"
+SPLUNK_REALM="${SPLUNK_REALM:-us1}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -86,7 +90,7 @@ echo ""
 info "Updating system packages..."
 apt-get update -qq
 apt-get upgrade -y -qq
-apt-get install -y -qq curl ufw
+apt-get install -y -qq curl
 log "System updated"
 
 # ── Install Node.js 20 ────────────────────────────────────────
@@ -150,6 +154,10 @@ TWILIO_FAILURE_RATE=0
 SENDGRID_FAILURE_RATE=0
 SURESCRIPTS_TIMEOUT_RATE=0
 TWILIO_TIMEOUT_RATE=0
+
+# Splunk Observability Cloud — APM tracing
+SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN}
+SPLUNK_REALM=${SPLUNK_REALM}
 EOF
 chmod 600 "${MOCK_DIR}/.env"
 log "Environment file written"
@@ -195,23 +203,10 @@ systemctl enable careconnect-mock
 systemctl start careconnect-mock
 log "Mock service systemd unit configured and started"
 
-# ── Firewall ──────────────────────────────────────────────────
-info "Configuring firewall..."
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow 22/tcp comment 'SSH'
-# Mock port — only reachable from API VM (and ThousandEyes agents if desired)
-ufw allow from "${API_PRIVATE_IP}" to any port "${MOCK_PORT}" comment 'Mock - API VM only'
-# Uncomment to allow ThousandEyes Enterprise Agent to probe the mock health endpoint:
-# ufw allow from <THOUSANDEYES_AGENT_IP> to any port "${MOCK_PORT}" comment 'ThousandEyes'
-ufw --force enable
-log "Firewall configured (port ${MOCK_PORT} open to API VM)"
-
 # ── Health check ──────────────────────────────────────────────
 info "Verifying mock service is responding..."
 sleep 3
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${MOCK_PORT}/health" || echo "000")
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${MOCK_PORT}/health" || true)
 if [[ "$HTTP_STATUS" == "200" ]]; then
   log "Mock service health check passed (HTTP 200)"
 else
@@ -237,6 +232,6 @@ echo "    curl -X PATCH http://localhost:${MOCK_PORT}/config \\"
 echo "      -H 'Content-Type: application/json' \\"
 echo "      -d '{\"twilio\":{\"latencyMs\":800,\"failureRate\":0.5}}'"
 echo ""
-echo "  Next: Set MOCK_HOST=${API_PRIVATE_IP%.*}.$(hostname -I | awk '{print $1}' | cut -d. -f4)"
-echo "        in /opt/careconnect/api/.env on VM2, then restart careconnect-api"
+echo "  Next: Run 02-setup-api.sh on the API VM (Step 3)"
+echo "        Set MOCK_HOST=$(hostname -I | awk '{print $1}') in config.env first"
 echo ""

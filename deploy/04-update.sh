@@ -24,6 +24,12 @@ BFF_DIR="/opt/careconnect/bff"
 SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN:-CHANGE_THIS_RUM_TOKEN}"
 SPLUNK_REALM="${SPLUNK_REALM:-us1}"
 APP_ENV="${APP_ENV:-production}"
+APP_VERSION="${APP_VERSION:-1.0.0}"
+
+# Portal hostnames — baked into both React bundles at build time for
+# cross-portal redirect logic. Also used to regenerate the Nginx config.
+CLINICAL_HOST="${CLINICAL_HOST:-${FRONTEND_HOST:-}}"
+PATIENT_HOST="${PATIENT_HOST:-}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -74,28 +80,32 @@ const common = {
 
 module.exports = {
   apps: [
-    { ...common, name: 'careconnect-api',           script: 'src/index.js',                          instances: 1,
+    { ...common, name: 'careconnect-api',           script: 'src/index.js',                               instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-api-gwy' } },
-    { ...common, name: 'careconnect-patients',      script: 'src/services/patients-service.js',      instances: 1,
+    { ...common, name: 'careconnect-patients',      script: 'src/services/patients-service.js',           instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-patients',      PATIENTS_SERVICE_PORT:      '3011' } },
-    { ...common, name: 'careconnect-labs',          script: 'src/services/labs-service.js',          instances: 1,
+    { ...common, name: 'careconnect-labs',          script: 'src/services/labs-service.js',               instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-labs',          LABS_SERVICE_PORT:          '3012' } },
-    { ...common, name: 'careconnect-rx',            script: 'src/services/rx-service.js',            instances: 1,
+    { ...common, name: 'careconnect-rx',            script: 'src/services/rx-service.js',                 instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-rx',            RX_SERVICE_PORT:            '3013' } },
-    { ...common, name: 'careconnect-notifications', script: 'src/services/notifications-service.js', instances: 1,
+    { ...common, name: 'careconnect-notifications', script: 'src/services/notifications-service.js',      instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-notifications', NOTIFICATIONS_SERVICE_PORT: '3014' } },
-    { ...common, name: 'careconnect-fhir',          script: 'src/services/fhir-service.js',          instances: 1,
+    { ...common, name: 'careconnect-fhir',          script: 'src/services/fhir-service.js',               instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-fhir',          FHIR_SERVICE_PORT:          '3015' } },
-    { ...common, name: 'careconnect-admin',         script: 'src/services/admin-service.js',         instances: 1,
+    { ...common, name: 'careconnect-admin',         script: 'src/services/admin-service.js',              instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-admin',         ADMIN_SERVICE_PORT:         '3016' } },
-    { ...common, name: 'careconnect-billing',       script: 'src/services/billing-service.js',       instances: 1,
+    { ...common, name: 'careconnect-billing',       script: 'src/services/billing-service.js',            instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-billing',       BILLING_SERVICE_PORT:       '3017' } },
-    { ...common, name: 'careconnect-ai',            script: 'src/services/ai-service.js',            instances: 1,
+    { ...common, name: 'careconnect-ai',            script: 'src/services/ai-service.js',                 instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-ai',            AI_SERVICE_PORT:            '3018' } },
+    { ...common, name: 'careconnect-providers',     script: 'src/services/providers-service.js',          instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-providers',     PROVIDERS_SERVICE_PORT:     '3019' } },
+    { ...common, name: 'careconnect-appointments',  script: 'src/services/appointments-service.js',       instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-appointments',  APPOINTMENTS_SERVICE_PORT:  '3020' } },
   ],
 };
 ECOEOF
-    log "ecosystem.config.js regenerated (9 services)"
+    log "ecosystem.config.js regenerated (11 services)"
 
     # Re-seed the database with fresh demo data
     info "Re-seeding database..."
@@ -135,18 +145,23 @@ ECOEOF
       log "DATABASE_URL updated to use host ${DB_HOST}"
     fi
 
-    # Update FHIR_BASE_URL if FRONTEND_HOST is provided
-    if [[ -n "${FRONTEND_HOST:-}" ]]; then
-      set_env() {
-        local key="$1" val="$2" file="$3"
-        if grep -q "^${key}=" "$file"; then
-          sed -i "s|^${key}=.*|${key}=${val}|" "$file"
-        else
-          echo "${key}=${val}" >> "$file"
-        fi
-      }
-      set_env FHIR_BASE_URL "https://${FRONTEND_HOST}/fhir" "${APP_DIR}/.env"
-      log "FHIR_BASE_URL set to https://${FRONTEND_HOST}/fhir"
+    # Update FHIR_BASE_URL and CORS_ORIGIN if host vars are provided
+    _fhir_host="${CLINICAL_HOST:-${FRONTEND_HOST:-}}"
+    if [[ -n "${_fhir_host}" ]]; then
+      set_env FHIR_BASE_URL "https://${_fhir_host}/fhir" "${APP_DIR}/.env"
+      log "FHIR_BASE_URL set to https://${_fhir_host}/fhir"
+    fi
+    if [[ -n "${CLINICAL_HOST:-${FRONTEND_HOST:-}}" ]]; then
+      _cors="https://${CLINICAL_HOST:-${FRONTEND_HOST}}"
+      [[ -n "${PATIENT_HOST:-}" ]] && _cors="${_cors},https://${PATIENT_HOST}"
+      set_env CORS_ORIGIN "${_cors}" "${APP_DIR}/.env"
+      log "CORS_ORIGIN set to ${_cors}"
+    fi
+
+    # Patch APP_VERSION so APM service.version stays current after deploys
+    if [[ -n "${APP_VERSION:-}" ]]; then
+      set_env APP_VERSION "${APP_VERSION}" "${APP_DIR}/.env"
+      log "APP_VERSION set to ${APP_VERSION}"
     fi
 
     # Update lab simulator timing if provided
@@ -177,75 +192,151 @@ ECOEOF
     VITE_SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN}" \
     VITE_SPLUNK_REALM="${SPLUNK_REALM}" \
     VITE_APP_ENV="${APP_ENV}" \
+    VITE_APP_VERSION="${APP_VERSION}" \
+    VITE_CLINICAL_HOST="${CLINICAL_HOST}" \
+    VITE_PATIENT_HOST="${PATIENT_HOST}" \
       npm run build
 
     rsync -a --delete "${BUILD_TMP}/dist/" "${WEB_ROOT}/"
     chmod -R 755 "${WEB_ROOT}"
     rm -rf "${BUILD_TMP}"
 
-    # Update the Nginx proxy config if API_PRIVATE_URL is provided.
-    # This keeps the Nginx upstream in sync with the current API VM IP.
-    if [[ -n "${API_PRIVATE_URL:-}" && -f /etc/nginx/sites-available/careconnect ]]; then
-      BFF_PORT="${BFF_PORT:-3003}"
+    # Regenerate Nginx config. Run on every frontend update to keep upstream in sync.
+    BFF_PORT="${BFF_PORT:-3003}"
+    BFF_UPSTREAM_PORT="${BFF_UPSTREAM_PORT:-8082}"
+    API_PORT="${API_PORT:-3001}"
+
+    # Resolve upstream target: API ALB takes precedence over direct VM IPs.
+    # Legacy API_PRIVATE_URL single-URL form is also supported as a fallback.
+    _api_alb="${API_ALB_DNS:-}"
+    _api_ips="${API_PRIVATE_IPS:-}"
+    if [[ -z "$_api_ips" && -n "${API_PRIVATE_URL:-}" ]]; then
+      _raw="${API_PRIVATE_URL#http://}"; _raw="${_raw#https://}"
+      _api_ips="${_raw%%:*}"
+    fi
+
+    if [[ -n "$_api_alb" ]]; then
+      UPSTREAM_SERVERS="    server ${_api_alb}:${API_PORT};"
+      log "Nginx upstream: API ALB (${_api_alb}:${API_PORT})"
+    elif [[ -n "$_api_ips" ]]; then
+      IFS=',' read -ra _api_ips_arr <<< "${_api_ips}"
+      UPSTREAM_SERVERS=$(printf "    server %s:${API_PORT};\n" "${_api_ips_arr[@]}")
+    fi
+
+    if [[ -n "$_api_alb" || -n "$_api_ips" ]]; then
+      _clinical="${CLINICAL_HOST:-${FRONTEND_HOST:-careconnect.example.com}}"
+      _patient="${PATIENT_HOST:-mychart.example.com}"
       cat > /etc/nginx/sites-available/careconnect <<NGINXEOF
+upstream api_cluster {
+${UPSTREAM_SERVERS}    keepalive 32;
+}
+
+# ── MyChart Patient Portal ─────────────────────────────────────
 server {
-    listen 80 default_server;
-    server_name _;
+    listen 80;
+    server_name ${_patient};
 
     root ${WEB_ROOT};
-    index index.html;
+
+    location = /ping { access_log off; return 200 "pong\n"; add_header Content-Type text/plain; }
 
     location /api/ {
-        proxy_pass ${API_PRIVATE_URL}/api/;
+        proxy_pass http://api_cluster/api/;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_connect_timeout 10s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
     }
 
     location /fhir/ {
-        proxy_pass ${API_PRIVATE_URL}/fhir/;
+        proxy_pass http://api_cluster/fhir/;
         proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_connect_timeout 10s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_set_header X-Forwarded-Proto \$scheme; proxy_set_header Connection "";
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
     }
 
     location = /health {
-        proxy_pass ${API_PRIVATE_URL}/health;
+        proxy_pass http://api_cluster/health;
         proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header Connection "";
     }
 
     location /bff/ {
         proxy_pass http://localhost:${BFF_PORT}/bff/;
         proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
+    }
+
+    location / { try_files \$uri \$uri/ /patient.html; }
+}
+
+# ── CareConnect Clinical Portal (default_server catch-all) ────
+server {
+    listen 80 default_server;
+    server_name ${_clinical} _;
+
+    root ${WEB_ROOT};
+
+    location = /ping { access_log off; return 200 "pong\n"; add_header Content-Type text/plain; }
+
+    location /api/ {
+        proxy_pass http://api_cluster/api/;
+        proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_connect_timeout 10s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
     }
 
+    location /fhir/ {
+        proxy_pass http://api_cluster/fhir/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme; proxy_set_header Connection "";
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
+    }
+
+    location = /health {
+        proxy_pass http://api_cluster/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header Connection "";
+    }
+
+    location /bff/ {
+        proxy_pass http://localhost:${BFF_PORT}/bff/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
+    }
+
+    location / { try_files \$uri \$uri/ /index.html; }
+}
+
+server {
+    listen 127.0.0.1:${BFF_UPSTREAM_PORT};
     location / {
-        try_files \$uri \$uri/ /index.html;
+        proxy_pass http://api_cluster/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header Connection "";
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
     }
 }
 NGINXEOF
       nginx -t && nginx -s reload && log "Nginx config updated and reloaded"
     else
-      # Nginx serves files directly from disk — signal reload to pick up new assets
       nginx -s reload 2>/dev/null && log "Nginx reloaded" || \
         systemctl restart nginx && log "Nginx restarted"
     fi
@@ -347,7 +438,7 @@ SVCEOF
 
     # Quick health check
     MOCK_PORT="${MOCK_PORT:-3002}"
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${MOCK_PORT}/health" || echo "000")
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${MOCK_PORT}/health" || true)
     [[ "$HTTP_STATUS" == "200" ]] && \
       log "Mock service health check passed (HTTP 200)" || \
       info "Mock health returned HTTP ${HTTP_STATUS} — may still be starting"
@@ -375,22 +466,31 @@ SVCEOF
       "${SCRIPT_DIR}/../bff/" "${BFF_DIR}/"
 
     # ── Always rewrite .env with current config values ──────────
-    # Do not guard with -f; values like API_URL and CORS_ORIGIN must
-    # reflect the actual environment on every deploy.
-    [[ -z "${API_PRIVATE_URL:-}" ]] && \
-      warn "API_PRIVATE_URL not set — BFF will not be able to reach the API"
-    info "Writing BFF .env..."
+    # BFF routes API calls through the internal Nginx upstream (127.0.0.1:BFF_UPSTREAM_PORT)
+    # so they are load-balanced across api_cluster — no single API IP hardcoded.
+    BFF_UPSTREAM_PORT="${BFF_UPSTREAM_PORT:-8082}"
+    if [[ -n "${API_PRIVATE_IPS:-}" ]]; then
+      _BFF_API_URL="http://127.0.0.1:${BFF_UPSTREAM_PORT}"
+    elif [[ -n "${API_PRIVATE_URL:-}" ]]; then
+      _BFF_API_URL="${API_PRIVATE_URL}"
+    else
+      _BFF_API_URL="http://localhost:3001"
+      warn "Neither API_PRIVATE_IPS nor API_PRIVATE_URL set — BFF will use localhost"
+    fi
+    _bff_cors="https://${CLINICAL_HOST:-${FRONTEND_HOST:-localhost}}"
+    [[ -n "${PATIENT_HOST:-}" ]] && _bff_cors="${_bff_cors},https://${PATIENT_HOST}"
+    info "Writing BFF .env (API_URL=${_BFF_API_URL}, CORS=${_bff_cors})..."
     cat > "${BFF_DIR}/.env" <<ENVEOF
 NODE_ENV=production
 BFF_PORT=${BFF_PORT:-3003}
-API_URL=${API_PRIVATE_URL:-http://localhost:3001}
-CORS_ORIGIN=https://${FRONTEND_HOST:-localhost}
+API_URL=${_BFF_API_URL}
+CORS_ORIGIN=${_bff_cors}
 LOG_LEVEL=info
 SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN:-}
 SPLUNK_REALM=${SPLUNK_REALM:-us1}
 ENVEOF
     chmod 600 "${BFF_DIR}/.env"
-    log ".env written (API_URL=${API_PRIVATE_URL:-http://localhost:3001})"
+    log ".env written (API_URL=${_BFF_API_URL})"
 
     cd "${BFF_DIR}"
     npm install --omit=dev --quiet
@@ -420,16 +520,6 @@ SVCEOF
       systemctl daemon-reload
       systemctl enable careconnect-bff
       log "careconnect-bff service installed"
-    fi
-
-    # ── Firewall — open BFF port to Cloudflare ──────────────────
-    if command -v ufw &>/dev/null; then
-      ufw allow "${BFF_PORT:-3003}/tcp" comment 'BFF' 2>/dev/null
-      for ip in $(curl -sf https://www.cloudflare.com/ips-v4); do
-        ufw allow from "$ip" to any port "${BFF_PORT:-3003}" comment 'Cloudflare' 2>/dev/null
-      done
-      ufw reload 2>/dev/null || true
-      log "Firewall updated for BFF port ${BFF_PORT:-3003}"
     fi
 
     systemctl restart careconnect-bff

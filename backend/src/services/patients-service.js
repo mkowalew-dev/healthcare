@@ -18,11 +18,9 @@ app.get('/health', (req, res) =>
   res.json({ status: 'healthy', service: 'careconnect-patients', uptime: process.uptime() })
 );
 
-app.use('/api/patients',     require('../routes/patients'));
-app.use('/api/providers',    require('../routes/providers'));
-app.use('/api/appointments', require('../routes/appointments'));
-app.use('/api/vitals',       require('../routes/vitals'));
-app.use('/api/notes',        require('../routes/notes'));
+app.use('/api/patients', require('../routes/patients'));
+app.use('/api/vitals',   require('../routes/vitals'));
+app.use('/api/notes',    require('../routes/notes'));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }));
 app.use((err, req, res, next) => res.status(500).json({ error: 'Internal server error' }));

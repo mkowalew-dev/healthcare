@@ -22,7 +22,7 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   process.env.OTEL_SERVICE_NAME = SERVICE_NAME;
   process.env.OTEL_RESOURCE_ATTRIBUTES = [
     `deployment.environment=${process.env.NODE_ENV || 'production'}`,
-    `service.version=1.0.0`,
+    `service.version=${process.env.APP_VERSION || '1.0.0'}`,
     `host.name=${require('os').hostname()}`,
   ].join(',');
 

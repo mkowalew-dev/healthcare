@@ -5,7 +5,6 @@ const express = require('express');
 const cors = require('cors');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const { requestLogger, logger } = require('./middleware/logger');
-const { trace } = require('@opentelemetry/api');
 const pool = require('./db/pool');
 const fs = require('fs');
 const path = require('path');
@@ -25,6 +24,8 @@ const SVC_FHIR          = process.env.FHIR_SERVICE_URL          || 'http://127.0
 const SVC_ADMIN         = process.env.ADMIN_SERVICE_URL         || 'http://127.0.0.1:3016';
 const SVC_BILLING       = process.env.BILLING_SERVICE_URL       || 'http://127.0.0.1:3017';
 const SVC_AI            = process.env.AI_SERVICE_URL            || 'http://127.0.0.1:3018';
+const SVC_PROVIDERS     = process.env.PROVIDERS_SERVICE_URL     || 'http://127.0.0.1:3019';
+const SVC_APPOINTMENTS  = process.env.APPOINTMENTS_SERVICE_URL  || 'http://127.0.0.1:3020';
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(o => o.trim());
@@ -45,7 +46,7 @@ app.get('/health', async (req, res) => {
     res.json({
       status: 'healthy',
       service: 'careconnect-api-gwy',
-      version: '1.0.0',
+      version: process.env.APP_VERSION || '1.0.0',
       timestamp: new Date().toISOString(),
       database: 'connected',
       uptime: process.uptime(),
@@ -68,19 +69,16 @@ app.use('/api/auth', express.json({ limit: '10mb' }), require('./routes/auth'));
 function proxy(target, serviceName) {
   return createProxyMiddleware({
     target,
-    changeOrigin: false,
+    changeOrigin: true,
     // Express strips the mount prefix (e.g. /api/patients) from req.url before
     // passing it to this middleware. Restore the full path so the internal
     // service receives the URL it expects (e.g. /api/patients/123, not /123).
     pathRewrite: (path, req) => req.baseUrl + path,
     on: {
-      // Set peer.service on the OTel HTTP client span that auto-instrumentation
-      // creates for this outgoing request. Without this, Splunk falls back to
-      // net.peer.name (the raw IP/loopback address) and shows anonymous IP nodes
-      // in the service map instead of named service nodes.
       proxyReq: () => {
-        const span = trace.getActiveSpan();
-        if (span) span.setAttribute('peer.service', serviceName);
+        // peer.service is set by the requestHook in tracing.js at CLIENT span creation.
+        // changeOrigin: true ensures the Host header matches the target (127.0.0.1:PORT)
+        // so OTel's http.host attribute doesn't leak the frontend hostname into the service map.
       },
       error: (err, req, res) => {
         logger.error('Gateway proxy error', { service: serviceName, error: err.message, path: req.path });
@@ -94,10 +92,10 @@ function proxy(target, serviceName) {
 
 // ── Route → Internal service ──────────────────────────────────────────────────
 app.use('/api/patients',      proxy(SVC_PATIENTS,      'careconnect-patients'));
-app.use('/api/providers',     proxy(SVC_PATIENTS,      'careconnect-patients'));
-app.use('/api/appointments',  proxy(SVC_PATIENTS,      'careconnect-patients'));
 app.use('/api/vitals',        proxy(SVC_PATIENTS,      'careconnect-patients'));
 app.use('/api/notes',         proxy(SVC_PATIENTS,      'careconnect-patients'));
+app.use('/api/providers',     proxy(SVC_PROVIDERS,     'careconnect-providers'));
+app.use('/api/appointments',  proxy(SVC_APPOINTMENTS,  'careconnect-appointments'));
 app.use('/api/labs',          proxy(SVC_LABS,          'careconnect-labs'));
 app.use('/api/medications',   proxy(SVC_LABS,          'careconnect-labs'));
 app.use('/api/eprescribe',    proxy(SVC_RX,            'careconnect-rx'));

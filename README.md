@@ -15,11 +15,11 @@ An EPIC-compatible Electronic Health Record (EHR) demo application built for dem
 
 ## Demo Credentials
 
-| Role | Email | Password |
-|------|-------|----------|
-| **Patient** | `patient@demo.com` | `Demo123!` |
-| **Provider** | `provider@demo.com` | `Demo123!` |
-| **Admin** | `admin@demo.com` | `Demo123!` |
+| Role | Email | Password | Portal |
+|------|-------|----------|--------|
+| **Patient** | `patient@demo.com` | `Demo123!` | mychart.pseudo-co.com |
+| **Provider** | `provider@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
+| **Admin** | `admin@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
 
 ---
 

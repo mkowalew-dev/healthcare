@@ -15,6 +15,7 @@ set -euo pipefail
 SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN:-CHANGE_THIS_O11Y_ACCESS_TOKEN}"  # Ingest token
 SPLUNK_REALM="${SPLUNK_REALM:-us1}"                                           # us0, us1, eu0, ap0, etc.
 APP_ENV="${APP_ENV:-production}"
+APP_VERSION="${APP_VERSION:-1.0.0}"
 
 # Splunk Platform (internal instance) — logs
 SPLUNK_PLATFORM_HEC_URL="${SPLUNK_PLATFORM_HEC_URL:-https://splunk.internal.example.com:8088/services/collector/event}"
@@ -39,32 +40,49 @@ info() { echo -e "${BLUE}[$(date '+%H:%M:%S')] → $1${NC}"; }
 ROLE="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-[[ $EUID -ne 0 ]] && err "Run as root: sudo bash 05-setup-otel-collector.sh [frontend|api|db]"
-[[ -z "$ROLE" ]] && err "Specify role: frontend, api, or db"
+[[ $EUID -ne 0 ]] && err "Run as root: sudo bash 05-setup-otel-collector.sh [frontend|api|db|mock]"
+[[ -z "$ROLE" ]] && err "Specify role: frontend, api, db, or mock"
 [[ "$SPLUNK_ACCESS_TOKEN" == "CHANGE_THIS_O11Y_ACCESS_TOKEN" ]] && \
   err "Set SPLUNK_ACCESS_TOKEN before running"
 [[ "$SPLUNK_PLATFORM_HEC_TOKEN" == "CHANGE_THIS_PLATFORM_HEC_TOKEN" ]] && \
-  err "Set SPLUNK_PLATFORM_HEC_TOKEN before running"
+  warn "SPLUNK_PLATFORM_HEC_TOKEN not set — log forwarding to Splunk Platform will be disabled"
 
 info "Setting up Splunk OTel Collector on ${ROLE} VM..."
 
 # ── Install Splunk OTel Collector ─────────────────────────────
-if systemctl is-active --quiet splunk-otel-collector 2>/dev/null; then
+if [[ -f /usr/bin/otelcol ]]; then
   warn "Collector already installed — will reconfigure"
 else
   info "Downloading and installing Splunk OTel Collector..."
+
+  # Azure VMs sometimes ship with azure.archive.ubuntu.com which can have DNS failures.
+  # Replace with the standard Ubuntu mirror so apt-get doesn't hang on timeouts.
+  if grep -q 'azure.archive.ubuntu.com' /etc/apt/sources.list 2>/dev/null; then
+    sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+      /etc/apt/sources.list
+    info "Replaced azure Ubuntu mirror with archive.ubuntu.com"
+  fi
+
+  # Short apt timeout so any remaining DNS failures don't hang the installer
+  echo 'Acquire::http::Timeout "10";' > /etc/apt/apt.conf.d/99otel-timeout
+  echo 'Acquire::Retries "1";'       >> /etc/apt/apt.conf.d/99otel-timeout
 
   # Official Splunk install script — installs as systemd service
   curl -sSfL https://dl.signalfx.com/splunk-otel-collector.sh -o /tmp/splunk-otel-collector.sh
 
   # Install without starting (we'll write our own config first)
+  # Token is passed as positional arg (after flags) — installer prompts if omitted
+  DEBIAN_FRONTEND=noninteractive \
   SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN}" \
   SPLUNK_REALM="${SPLUNK_REALM}" \
     sh /tmp/splunk-otel-collector.sh \
     --realm "${SPLUNK_REALM}" \
     --memory 512 \
     --mode agent \
-    --without-instrumentation
+    --without-instrumentation \
+    -- "${SPLUNK_ACCESS_TOKEN}"
+
+  rm -f /etc/apt/apt.conf.d/99otel-timeout
 
   rm -f /tmp/splunk-otel-collector.sh
   log "Splunk OTel Collector installed"
@@ -89,7 +107,11 @@ cat > "${ENV_FILE}" <<EOF
 SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN}
 SPLUNK_REALM=${SPLUNK_REALM}
 SPLUNK_MEMORY_TOTAL_MIB=512
+# Point the collector at our role-specific config.
+# Without this, the installer's default config (with Jaeger/OTLP receivers) is used instead.
+SPLUNK_CONFIG=${CONFIG_DIR}/agent_config.yaml
 APP_ENV=${APP_ENV}
+APP_VERSION=${APP_VERSION}
 # Logs → internal Splunk Platform instance
 SPLUNK_PLATFORM_HEC_URL=${SPLUNK_PLATFORM_HEC_URL}
 SPLUNK_PLATFORM_HEC_TOKEN=${SPLUNK_PLATFORM_HEC_TOKEN}
@@ -106,7 +128,11 @@ fi
 chmod 600 "${ENV_FILE}"
 log "Environment file written (${ENV_FILE})"
 
-# ── Configure OTLP endpoint for API VM (Node.js → Collector) ──
+# ── Configure OTLP endpoint for API and Mock VMs (Node.js → Collector) ──
+# Mock VM is intentionally uninstrumented — it appears as inferred services
+# in Splunk APM via outbound spans from the API. Collector collects host
+# metrics only; no OTLP receiver, no app .env changes needed.
+
 if [[ "$ROLE" == "api" ]]; then
   info "Configuring Node.js app to send traces to local collector..."
   API_ENV="/opt/careconnect/api/.env"
@@ -121,8 +147,7 @@ if [[ "$ROLE" == "api" ]]; then
 
 # Splunk APM — send traces to local collector (avoids per-node token management)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
-OTEL_SERVICE_NAME=careconnect-api
-OTEL_RESOURCE_ATTRIBUTES=deployment.environment=${APP_ENV}
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=${APP_ENV},service.version=${APP_VERSION}
 EOF
     log "API .env updated with OTLP collector endpoint"
 
@@ -136,9 +161,6 @@ EOF
     warn "${API_ENV} not found — run 02-setup-api.sh first"
   fi
 
-  # Open OTLP port 4317/4318 to the app (localhost only — already restricted)
-  ufw allow from 127.0.0.1 to any port 4317 comment 'OTLP gRPC - localhost only' 2>/dev/null || true
-  ufw allow from 127.0.0.1 to any port 4318 comment 'OTLP HTTP - localhost only' 2>/dev/null || true
 fi
 
 # ── Start / restart collector ─────────────────────────────────
@@ -192,6 +214,11 @@ case "$ROLE" in
     echo "  ── DB VM: PostgreSQL metrics ───────────────────────────"
     echo "  PostgreSQL metrics appear in Splunk Infrastructure"
     echo "  Monitoring under the 'careconnect-db' service."
+    ;;
+  mock)
+    echo "  ── Mock VM: infrastructure metrics only ────────────────"
+    echo "  Mock services are uninstrumented — they appear as"
+    echo "  inferred services in Splunk APM via API outbound spans."
     ;;
 esac
 echo ""

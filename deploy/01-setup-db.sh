@@ -12,7 +12,9 @@ set -euo pipefail
 DB_NAME="${DB_NAME:-careconnect}"
 DB_USER="${DB_USER:-careconnect}"
 DB_PASSWORD="${DB_PASSWORD:-CHANGE_THIS_STRONG_PASSWORD}"
-API_PRIVATE_IP="${API_PRIVATE_IP:-10.0.1.20}"
+# Comma-separated list — all API VM private IPs get pg_hba access.
+# Accepts either API_PRIVATE_IPS (plural, multi-VM) or API_PRIVATE_IP (legacy).
+API_PRIVATE_IPS="${API_PRIVATE_IPS:-${API_PRIVATE_IP:-10.0.1.20}}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -114,35 +116,21 @@ max_connections = 100
 shared_buffers = 256MB
 EOF
 
-# Add pg_hba entry for API VM
-cat >> "$PG_HBA" <<EOF
-
-# CareConnect API VM access
-host    ${DB_NAME}    ${DB_USER}    ${API_PRIVATE_IP}/32    scram-sha-256
-EOF
+# Add pg_hba entries for all API VMs
+{
+  echo ""
+  echo "# CareConnect API VM access"
+  IFS=',' read -ra _ips <<< "${API_PRIVATE_IPS}"
+  for ip in "${_ips[@]}"; do
+    echo "host    ${DB_NAME}    ${DB_USER}    ${ip}/32    scram-sha-256"
+  done
+} >> "$PG_HBA"
 
 log "PostgreSQL network configuration complete"
 
 # ── Restart PostgreSQL to apply changes ──────────────────────
 systemctl restart postgresql
 log "PostgreSQL restarted"
-
-# ── Firewall (UFW) ───────────────────────────────────────────
-info "Configuring firewall..."
-apt-get install -y -qq ufw
-
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-
-# SSH from anywhere (restrict to bastion IP in production)
-ufw allow 22/tcp comment 'SSH'
-
-# PostgreSQL only from API VM private IP
-ufw allow from "${API_PRIVATE_IP}" to any port 5432 comment 'PostgreSQL - API VM only'
-
-ufw --force enable
-log "Firewall configured (UFW)"
 
 # ── Verify ───────────────────────────────────────────────────
 info "Verifying setup..."
@@ -161,5 +149,5 @@ echo "  Database: ${DB_NAME}"
 echo "  User:     ${DB_USER}"
 echo "  Port:     5432"
 echo ""
-echo "  Next: Run 02-setup-api.sh on the API VM"
+echo "  Next: Run 06-setup-mock.sh on the Mock VM (Step 2)"
 echo ""

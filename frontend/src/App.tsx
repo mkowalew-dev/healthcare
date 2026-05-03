@@ -4,15 +4,6 @@ import { Layout } from './components/Layout';
 import Login from './pages/Login';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 
-// Patient pages
-import PatientDashboard from './pages/patient/Dashboard';
-import Appointments from './pages/patient/Appointments';
-import LabResults from './pages/patient/LabResults';
-import Medications from './pages/patient/Medications';
-import BillPay from './pages/patient/BillPay';
-import PatientMessages from './pages/patient/Messages';
-import HealthSummary from './pages/patient/HealthSummary';
-
 // Provider pages
 import ProviderDashboard from './pages/provider/Dashboard';
 import PatientList from './pages/provider/PatientList';
@@ -27,8 +18,15 @@ import UserManagement from './pages/admin/UserManagement';
 import Departments from './pages/admin/Departments';
 import Integrations from './pages/admin/Integrations';
 
-// Patient pages (additional)
-import PatientNotifications from './pages/patient/Notifications';
+const PATIENT_HOST = import.meta.env.VITE_PATIENT_HOST;
+
+function redirectToPatientPortal() {
+  if (PATIENT_HOST) {
+    window.location.href = `https://${PATIENT_HOST}/`;
+    return true;
+  }
+  return false;
+}
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, isLoading } = useAuth();
@@ -42,7 +40,9 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
   }
 
   if (!user) return <Navigate to="/login" replace />;
+
   if (roles && !roles.includes(user.role)) {
+    if (user.role === 'patient' && redirectToPatientPortal()) return null;
     return <Navigate to={`/${user.role}/dashboard`} replace />;
   }
 
@@ -53,6 +53,7 @@ function RootRedirect() {
   const { user, isLoading } = useAuth();
   if (isLoading) return <div className="min-h-screen flex items-center justify-center"><LoadingSpinner size="lg" /></div>;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'patient' && redirectToPatientPortal()) return null;
   return <Navigate to={`/${user.role}/dashboard`} replace />;
 }
 
@@ -61,22 +62,6 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<RootRedirect />} />
-
-      {/* Patient routes */}
-      <Route
-        path="/patient"
-        element={<ProtectedRoute roles={['patient']}><Layout /></ProtectedRoute>}
-      >
-        <Route path="dashboard" element={<PatientDashboard />} />
-        <Route path="appointments" element={<Appointments />} />
-        <Route path="labs" element={<LabResults />} />
-        <Route path="medications" element={<Medications />} />
-        <Route path="billing" element={<BillPay />} />
-        <Route path="messages" element={<PatientMessages />} />
-        <Route path="health-summary" element={<HealthSummary />} />
-        <Route path="notifications" element={<PatientNotifications />} />
-        <Route index element={<Navigate to="dashboard" replace />} />
-      </Route>
 
       {/* Provider routes */}
       <Route

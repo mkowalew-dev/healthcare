@@ -1,0 +1,74 @@
+# ── Splunk OTel Collector — VM4 (Mock External Services)
+# Collects: host metrics only.
+# The mock services are intentionally uninstrumented so they appear as
+# inferred services in Splunk APM, discovered via outbound spans from the API.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        exclude_mount_points:
+          mount_points: [/dev, /proc, /sys, /run]
+          match_type: strict
+      network:
+      load:
+      processes:
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  resourcedetection:
+    detectors: [system, env, ec2]
+    timeout: 10s
+    override: false
+
+  resource/mock:
+    attributes:
+      - key: deployment.environment
+        value: ${env:APP_ENV}
+        action: upsert
+      - key: service.version
+        value: ${env:APP_VERSION}
+        action: upsert
+      - key: host.role
+        value: mock
+        action: insert
+
+exporters:
+  signalfx:
+    access_token: ${env:SPLUNK_ACCESS_TOKEN}
+    realm: ${env:SPLUNK_REALM}
+    timeout: 30s
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [memory_limiter, resourcedetection, resource/mock, batch]
+      exporters: [signalfx]
+
+  telemetry:
+    logs:
+      level: warn

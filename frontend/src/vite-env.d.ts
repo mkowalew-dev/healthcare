@@ -5,6 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_SPLUNK_RUM_TOKEN: string;
   readonly VITE_SPLUNK_REALM: string;
   readonly VITE_APP_ENV: string;
+  readonly VITE_APP_VERSION: string;
 }
 
 interface ImportMeta {
