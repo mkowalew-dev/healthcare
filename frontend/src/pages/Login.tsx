@@ -52,7 +52,7 @@ function CiscoMark({ size = 40 }: { size?: number }) {
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [email] = useState('dr.chen@careconnect.demo');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');
@@ -163,10 +163,9 @@ export default function Login() {
               <label className="form-label">Email address</label>
               <input
                 type="email"
-                className="form-input"
-                placeholder="you@example.com"
+                className="form-input bg-gray-50 text-gray-600 cursor-default"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                readOnly
                 autoComplete="email"
                 data-testid="login-email-input"
               />

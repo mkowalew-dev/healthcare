@@ -102,6 +102,8 @@ export default function Worklist() {
             onClick={logout}
             className="p-1.5 rounded hover:bg-pacs-hover text-pacs-muted hover:text-pacs-text transition-colors"
             title="Sign out"
+            aria-label="Sign out"
+            data-testid="worklist-logout"
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -117,11 +119,13 @@ export default function Worklist() {
           </div>
 
           {/* Status filter */}
-          <div className="flex gap-1">
+          <div className="flex gap-1" role="group" aria-label="Filter by status">
             {['ALL', 'UNREAD', 'IN_PROGRESS', 'COMPLETED'].map(s => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
+                aria-pressed={statusFilter === s}
+                data-testid={`filter-status-${s.toLowerCase()}`}
                 className={clsx(
                   'px-2.5 py-1 rounded text-xs font-medium transition-colors',
                   statusFilter === s
@@ -135,11 +139,13 @@ export default function Worklist() {
           </div>
 
           {/* Modality filter */}
-          <div className="flex gap-1">
+          <div className="flex gap-1" role="group" aria-label="Filter by modality">
             {['ALL', ...modalities].map(m => (
               <button
                 key={m}
                 onClick={() => setModalityFilter(m)}
+                aria-pressed={modalityFilter === m}
+                data-testid={`filter-modality-${m.toLowerCase()}`}
                 className={clsx(
                   'px-2.5 py-1 rounded text-xs font-medium transition-colors',
                   modalityFilter === m
@@ -163,6 +169,8 @@ export default function Worklist() {
             disabled={loading}
             className="p-1.5 rounded hover:bg-pacs-hover text-pacs-muted hover:text-pacs-text transition-colors disabled:opacity-50"
             title="Refresh worklist"
+            aria-label="Refresh worklist"
+            data-testid="worklist-refresh"
           >
             <RefreshCw className={clsx('w-3.5 h-3.5', loading && 'animate-spin')} />
           </button>
@@ -172,7 +180,11 @@ export default function Worklist() {
       {/* Content */}
       <div className="flex-1 overflow-auto pacs-scroll">
         {error && (
-          <div className="m-4 flex items-start gap-2 bg-red-900/20 border border-red-800/40 rounded-lg p-4">
+          <div
+            className="m-4 flex items-start gap-2 bg-red-900/20 border border-red-800/40 rounded-lg p-4"
+            data-testid="worklist-error"
+            role="alert"
+          >
             <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
             <div>
               <p className="text-red-300 text-sm font-medium">Unable to load worklist</p>
@@ -183,7 +195,7 @@ export default function Worklist() {
         )}
 
         {!error && loading && (
-          <div className="flex items-center justify-center h-40">
+          <div className="flex items-center justify-center h-40" data-testid="worklist-loading" aria-live="polite">
             <div className="flex items-center gap-2 text-pacs-muted">
               <RefreshCw className="w-4 h-4 animate-spin" />
               <span className="text-sm">Loading worklist…</span>
@@ -199,7 +211,7 @@ export default function Worklist() {
         )}
 
         {!error && !loading && filtered.length > 0 && (
-          <table className="w-full text-sm border-collapse">
+          <table className="w-full text-sm border-collapse" data-testid="worklist-table">
             <thead>
               <tr className="text-left bg-pacs-surface border-b border-pacs-border sticky top-0 z-10">
                 <th className="px-4 py-2.5 text-xs font-medium text-pacs-muted uppercase tracking-wider w-8">#</th>
@@ -218,6 +230,10 @@ export default function Worklist() {
                 <tr
                   key={study.studyInstanceUID}
                   onClick={() => navigate(`/viewer/${study.studyInstanceUID}`)}
+                  data-testid="worklist-study-row"
+                  data-study-uid={study.studyInstanceUID}
+                  data-priority={study.priority}
+                  data-status={study.status}
                   className={clsx(
                     'border-b border-pacs-border/50 cursor-pointer group transition-colors',
                     study.priority === 'STAT' ? 'hover:bg-red-950/20' : 'hover:bg-pacs-hover',

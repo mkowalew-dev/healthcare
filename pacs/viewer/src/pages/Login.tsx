@@ -6,8 +6,8 @@ import { Monitor, Eye, EyeOff, AlertCircle } from 'lucide-react';
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('dr.chen@careconnect.demo');
-  const [password, setPassword] = useState('Demo123!');
+  const [email] = useState('dr.chen@careconnect.demo');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -42,40 +42,52 @@ export default function Login() {
 
         {/* Login card */}
         <div className="bg-pacs-surface border border-pacs-border rounded-xl p-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5" data-testid="pacs-login-form">
             <div>
-              <label className="block text-xs font-medium text-pacs-text-dim uppercase tracking-wider mb-2">
+              <label
+                htmlFor="pacs-email"
+                className="block text-xs font-medium text-pacs-text-dim uppercase tracking-wider mb-2"
+              >
                 Radiologist Email
               </label>
               <input
+                id="pacs-email"
                 type="email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
+                readOnly
+                autoComplete="email"
                 className="w-full bg-pacs-panel border border-pacs-border rounded-lg px-4 py-2.5 text-pacs-text text-sm
-                           focus:outline-none focus:ring-2 focus:ring-pacs-accent/50 focus:border-pacs-accent
-                           placeholder:text-pacs-muted"
-                placeholder="dr.name@pacs.hospital"
+                           cursor-default opacity-75
+                           focus:outline-none focus:ring-2 focus:ring-pacs-accent/50 focus:border-pacs-accent"
+                data-testid="pacs-email-input"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-pacs-text-dim uppercase tracking-wider mb-2">
+              <label
+                htmlFor="pacs-password"
+                className="block text-xs font-medium text-pacs-text-dim uppercase tracking-wider mb-2"
+              >
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="pacs-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                   className="w-full bg-pacs-panel border border-pacs-border rounded-lg px-4 py-2.5 text-pacs-text text-sm pr-10
                              focus:outline-none focus:ring-2 focus:ring-pacs-accent/50 focus:border-pacs-accent"
+                  data-testid="pacs-password-input"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(v => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-pacs-muted hover:text-pacs-text-dim"
+                  data-testid="pacs-toggle-password"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -83,7 +95,11 @@ export default function Login() {
             </div>
 
             {error && (
-              <div className="flex items-start gap-2 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2.5">
+              <div
+                className="flex items-start gap-2 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2.5"
+                data-testid="pacs-login-error"
+                role="alert"
+              >
                 <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
                 <p className="text-red-300 text-xs">{error}</p>
               </div>
@@ -94,25 +110,11 @@ export default function Login() {
               disabled={loading}
               className="w-full bg-pacs-accent hover:bg-pacs-accent-dim disabled:opacity-50 disabled:cursor-not-allowed
                          text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
+              data-testid="pacs-login-button"
             >
               {loading ? 'Authenticating…' : 'Sign In'}
             </button>
           </form>
-
-          {/* Demo credentials hint */}
-          <div className="mt-6 pt-5 border-t border-pacs-border">
-            <p className="text-xs text-pacs-muted mb-2 font-medium uppercase tracking-wider">Demo Account</p>
-            <button
-              type="button"
-              onClick={() => { setEmail('dr.chen@careconnect.demo'); setPassword('Demo123!'); }}
-              className="w-full text-left flex items-center justify-between px-3 py-1.5 rounded
-                         bg-pacs-panel hover:bg-pacs-hover border border-pacs-border/50 group transition-colors"
-            >
-              <span className="text-xs text-pacs-text-dim group-hover:text-pacs-text">Dr. Emily Chen</span>
-              <span className="text-xs text-pacs-muted">Radiologist</span>
-            </button>
-            <p className="text-xs text-pacs-muted mt-2">Password: <span className="text-pacs-text font-mono">Demo123!</span></p>
-          </div>
         </div>
       </div>
     </div>

@@ -447,7 +447,7 @@ export default function StudyViewer() {
 
   if (loadingStudy) {
     return (
-      <div className="flex items-center justify-center h-screen bg-pacs-bg">
+      <div className="flex items-center justify-center h-screen bg-pacs-bg" data-testid="viewer-loading" aria-live="polite">
         <div className="flex items-center gap-3 text-pacs-muted">
           <Activity className="w-5 h-5 animate-pulse" />
           <span className="text-sm">Loading study…</span>
@@ -458,10 +458,14 @@ export default function StudyViewer() {
 
   if (error && !study) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-pacs-bg gap-4">
+      <div className="flex flex-col items-center justify-center h-screen bg-pacs-bg gap-4" data-testid="viewer-error" role="alert">
         <AlertTriangle className="w-10 h-10 text-red-400" />
         <p className="text-pacs-text">{error}</p>
-        <button onClick={() => navigate('/worklist')} className="text-pacs-accent hover:underline text-sm">
+        <button
+          onClick={() => navigate('/worklist')}
+          className="text-pacs-accent hover:underline text-sm"
+          data-testid="viewer-error-back"
+        >
           Return to Worklist
         </button>
       </div>
@@ -485,6 +489,8 @@ export default function StudyViewer() {
           <button
             onClick={() => navigate('/worklist')}
             className="flex items-center gap-1.5 text-pacs-muted hover:text-pacs-text transition-colors text-sm"
+            data-testid="viewer-back-to-worklist"
+            aria-label="Back to worklist"
           >
             <ArrowLeft className="w-4 h-4" />
             Worklist
@@ -507,6 +513,9 @@ export default function StudyViewer() {
               key={t.name}
               onClick={() => switchTool(t.name)}
               title={t.label}
+              aria-label={t.label}
+              aria-pressed={activeTool === t.name}
+              data-testid={`viewer-tool-${t.name.toLowerCase()}`}
               className={clsx(
                 'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors',
                 activeTool === t.name
@@ -522,6 +531,8 @@ export default function StudyViewer() {
           <button
             onClick={resetView}
             title="Reset view"
+            aria-label="Reset view"
+            data-testid="viewer-reset-view"
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium
                        bg-pacs-panel text-pacs-muted hover:text-pacs-text border border-pacs-border"
           >
@@ -531,7 +542,8 @@ export default function StudyViewer() {
             onClick={downloadCurrentImage}
             disabled={!vpInfo || downloading}
             title="Download current image as DICOM (.dcm)"
-            data-testid="download-dicom"
+            aria-label="Download current image as DICOM"
+            data-testid="viewer-download-dicom"
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium
                        bg-pacs-panel text-pacs-muted hover:text-pacs-text border border-pacs-border
                        disabled:opacity-40 disabled:cursor-not-allowed"
@@ -543,6 +555,8 @@ export default function StudyViewer() {
           </button>
           <button
             title="Fullscreen"
+            aria-label="Enter fullscreen"
+            data-testid="viewer-fullscreen"
             onClick={() => viewportRef.current?.closest('.viewer-container')?.requestFullscreen?.()}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium
                        bg-pacs-panel text-pacs-muted hover:text-pacs-text border border-pacs-border"
@@ -586,6 +600,10 @@ export default function StudyViewer() {
               <button
                 key={s.seriesInstanceUID}
                 onClick={() => setActiveSeries(s)}
+                aria-label={`Series ${s.seriesNumber}: ${s.seriesDescription}`}
+                aria-pressed={activeSeries?.seriesInstanceUID === s.seriesInstanceUID}
+                data-testid="viewer-series-button"
+                data-series-uid={s.seriesInstanceUID}
                 className={clsx(
                   'w-full text-left px-3 py-3 border-b border-pacs-border/50 transition-colors',
                   activeSeries?.seriesInstanceUID === s.seriesInstanceUID
