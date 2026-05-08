@@ -1,7 +1,6 @@
 # ── Splunk OTel Collector — VM4 (Mock External Services)
-# Collects: host metrics only.
-# The mock services are intentionally uninstrumented so they appear as
-# inferred services in Splunk APM, discovered via outbound spans from the API.
+# Collects: host metrics, mock service logs (journald)
+# Exports to: Splunk Observability Cloud (metrics) + Splunk Platform (logs)
 
 extensions:
   health_check:
@@ -27,6 +26,12 @@ receivers:
       network:
       load:
       processes:
+
+  # ── Mock service logs (systemd journal) ────────────────────
+  journald/mock:
+    units:
+      - careconnect-mock
+    priority: info
 
 processors:
   memory_limiter:
@@ -61,6 +66,16 @@ exporters:
     realm: ${env:SPLUNK_REALM}
     timeout: 30s
 
+  splunk_hec/platform:
+    token: ${env:SPLUNK_PLATFORM_HEC_TOKEN}
+    endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
+    source: careconnect-mock
+    sourcetype: careconnect:log
+    index: o11y_logs
+    timeout: 10s
+    tls:
+      insecure_skip_verify: false
+
 service:
   extensions: [health_check]
   pipelines:
@@ -68,6 +83,10 @@ service:
       receivers: [hostmetrics]
       processors: [memory_limiter, resourcedetection, resource/mock, batch]
       exporters: [signalfx]
+    logs:
+      receivers: [journald/mock]
+      processors: [memory_limiter, resourcedetection, resource/mock, batch]
+      exporters: [splunk_hec/platform]
 
   telemetry:
     logs:

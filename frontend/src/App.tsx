@@ -21,7 +21,7 @@ import Integrations from './pages/admin/Integrations';
 const PATIENT_HOST = import.meta.env.VITE_PATIENT_HOST;
 
 function redirectToPatientPortal() {
-  if (PATIENT_HOST) {
+  if (PATIENT_HOST && window.location.hostname !== PATIENT_HOST) {
     window.location.href = `https://${PATIENT_HOST}/`;
     return true;
   }

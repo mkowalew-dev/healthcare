@@ -1,9 +1,6 @@
 # ── Splunk OTel Collector — VM1 (Frontend)
-# Collects: host metrics only
-# Note: This VM serves static files via `serve` (no Nginx).
-# Access logs come from the ALB — forward ALB access logs from
-# S3 (AWS) or Azure Storage to Splunk separately if needed.
-# Exports to: Splunk Observability Cloud
+# Collects: host metrics, Nginx access/error logs, BFF app logs
+# Exports to: Splunk Observability Cloud (metrics) + Splunk Platform (logs)
 
 extensions:
   health_check:
@@ -14,6 +11,7 @@ extensions:
 receivers:
   # ── Host metrics (CPU, memory, disk, network) ──────────────
   hostmetrics:
+
     collection_interval: 10s
     scrapers:
       cpu:
@@ -32,6 +30,20 @@ receivers:
       network:
       load:
       processes:
+
+  # ── Nginx access + error logs ───────────────────────────────
+  file_log/nginx:
+    include:
+      - /var/log/nginx/access.log
+      - /var/log/nginx/error.log
+    include_file_path: true
+    start_at: end
+
+  # ── BFF app logs (systemd journal) ─────────────────────────
+  journald/bff:
+    units:
+      - careconnect-bff
+    priority: info
 
 processors:
   # ── Memory protection ───────────────────────────────────────
@@ -74,6 +86,17 @@ exporters:
     realm: ${env:SPLUNK_REALM}
     timeout: 30s
 
+  # ── Logs → Splunk Platform ──────────────────────────────────
+  splunk_hec/platform:
+    token: ${env:SPLUNK_PLATFORM_HEC_TOKEN}
+    endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
+    source: careconnect-frontend
+    sourcetype: careconnect:log
+    index: o11y_logs
+    timeout: 10s
+    tls:
+      insecure_skip_verify: false
+
 service:
   extensions: [health_check, zpages]
   pipelines:
@@ -81,6 +104,10 @@ service:
       receivers: [hostmetrics]
       processors: [memory_limiter, resourcedetection, resource/frontend, batch]
       exporters: [signalfx]
+    logs:
+      receivers: [file_log/nginx, journald/bff]
+      processors: [memory_limiter, resourcedetection, resource/frontend, batch]
+      exporters: [splunk_hec/platform]
 
   telemetry:
     logs:

@@ -17,7 +17,7 @@ import PatientNotifications from './pages/patient/Notifications';
 const CLINICAL_HOST = import.meta.env.VITE_CLINICAL_HOST;
 
 function redirectToClinicalPortal() {
-  if (CLINICAL_HOST) {
+  if (CLINICAL_HOST && window.location.hostname !== CLINICAL_HOST) {
     window.location.href = `https://${CLINICAL_HOST}/`;
     return true;
   }

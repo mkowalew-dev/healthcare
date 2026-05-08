@@ -10,6 +10,10 @@
 # ============================================================
 set -euo pipefail
 
+# Auto-source config.env from the same directory as this script
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[[ -f "${_SCRIPT_DIR}/config.env" ]] && source "${_SCRIPT_DIR}/config.env"
+
 # ── CONFIGURATION ──────────────────────────────────────────
 # Splunk Observability Cloud — APM traces and infrastructure metrics
 SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN:-CHANGE_THIS_O11Y_ACCESS_TOKEN}"  # Ingest token
@@ -40,8 +44,8 @@ info() { echo -e "${BLUE}[$(date '+%H:%M:%S')] → $1${NC}"; }
 ROLE="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-[[ $EUID -ne 0 ]] && err "Run as root: sudo bash 05-setup-otel-collector.sh [frontend|api|db|mock]"
-[[ -z "$ROLE" ]] && err "Specify role: frontend, api, db, or mock"
+[[ $EUID -ne 0 ]] && err "Run as root: sudo bash 05-setup-otel-collector.sh [frontend|api|db|mock|pacs]"
+[[ -z "$ROLE" ]] && err "Specify role: frontend, api, db, mock, or pacs"
 [[ "$SPLUNK_ACCESS_TOKEN" == "CHANGE_THIS_O11Y_ACCESS_TOKEN" ]] && \
   err "Set SPLUNK_ACCESS_TOKEN before running"
 [[ "$SPLUNK_PLATFORM_HEC_TOKEN" == "CHANGE_THIS_PLATFORM_HEC_TOKEN" ]] && \
@@ -219,6 +223,24 @@ case "$ROLE" in
     echo "  ── Mock VM: infrastructure metrics only ────────────────"
     echo "  Mock services are uninstrumented — they appear as"
     echo "  inferred services in Splunk APM via API outbound spans."
+    ;;
+  pacs)
+    echo "  ── PACS VM (VM5 / local) ───────────────────────────────"
+    echo "  OTLP gRPC:   localhost:4317  ← PACS Node.js sends traces here"
+    echo "  OTLP HTTP:   localhost:4318  ← alternative endpoint"
+    echo "  zPages:      http://localhost:55679  ← debug collector"
+    echo ""
+    echo "  Log files collected:"
+    echo "    /var/log/careconnect/pacs-out.log"
+    echo "    /var/log/careconnect/pacs-error.log"
+    echo ""
+    echo "  Ensure PM2 is logging to those paths:"
+    echo "    pm2 set pm2-logrotate:max_size 50M"
+    echo "    pm2 set pm2-logrotate:retain 7"
+    echo "    pm2 start pacs-server --log /var/log/careconnect/pacs-out.log"
+    echo ""
+    echo "  RUM: baked into the Vite build via VITE_SPLUNK_RUM_TOKEN."
+    echo "  Re-run:  bash deploy/local-deploy.sh update viewer"
     ;;
 esac
 echo ""

@@ -22,7 +22,7 @@ export default function PatientDashboard() {
   const [unreadMessages, setUnreadMessages] = useState(0);
 
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       appointmentsApi.list({ upcoming: 'true' }),
       labsApi.list(),
       medicationsApi.list({ status: 'active' }),
@@ -30,14 +30,20 @@ export default function PatientDashboard() {
       messagesApi.unreadCount(),
     ])
       .then(([appts, labs, meds, billSum, msgs]) => {
-        const sorted = [...appts.data].sort((a: Appointment, b: Appointment) =>
-          a.scheduled_at.localeCompare(b.scheduled_at)
-        );
-        setUpcomingAppts(sorted.slice(0, 3));
-        setRecentLabs(labs.data.filter((l: LabResult) => l.status !== 'pending').slice(0, 5));
-        setActiveMeds(meds.data.slice(0, 5));
-        setBillSummary(billSum.data);
-        setUnreadMessages(msgs.data.count);
+        if (appts.status === 'fulfilled') {
+          const sorted = [...appts.value.data].sort((a: Appointment, b: Appointment) =>
+            a.scheduled_at.localeCompare(b.scheduled_at)
+          );
+          setUpcomingAppts(sorted.slice(0, 3));
+        }
+        if (labs.status === 'fulfilled')
+          setRecentLabs(labs.value.data.filter((l: LabResult) => l.status !== 'pending').slice(0, 5));
+        if (meds.status === 'fulfilled')
+          setActiveMeds(meds.value.data.slice(0, 5));
+        if (billSum.status === 'fulfilled')
+          setBillSummary(billSum.value.data);
+        if (msgs.status === 'fulfilled')
+          setUnreadMessages(msgs.value.data.count);
       })
       .finally(() => setLoading(false));
   }, []);

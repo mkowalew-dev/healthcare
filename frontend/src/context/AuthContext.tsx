@@ -28,6 +28,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      setProfile(null);
+      setToken(null);
+    };
+    window.addEventListener('cc:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('cc:session-expired', handleSessionExpired);
+  }, []);
+
   const login = async (email: string, password: string) => {
     const res = await authApi.login(email, password);
     const { token: newToken, user: newUser, profile: newProfile } = res.data;

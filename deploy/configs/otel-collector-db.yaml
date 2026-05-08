@@ -111,7 +111,7 @@ exporters:
     endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
     source: postgresql
     sourcetype: postgresql:log
-    index: main
+    index: o11y_logs
     timeout: 10s
     tls:
       insecure_skip_verify: false

@@ -26,11 +26,10 @@ function attachTraceHeaders(config: InternalAxiosRequestConfig) {
   return config;
 }
 
-function handleAuthError(error: { response?: { status: number } }) {
-  if (error.response?.status === 401) {
+function handleAuthError(error: { response?: { status: number }, config?: { url?: string } }) {
+  if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
     localStorage.removeItem('cc_token');
-    localStorage.removeItem('cc_user');
-    window.location.href = '/login';
+    window.dispatchEvent(new Event('cc:session-expired'));
   }
   return Promise.reject(error);
 }

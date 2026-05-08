@@ -38,22 +38,29 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   let apiPort;
   try { apiPort = parseInt(new URL(API_URL).port || '3001', 10); } catch (_) { apiPort = 3001; }
 
+  const startOptions = {
+    serviceName: SERVICE_NAME,
+    accessToken: ACCESS_TOKEN,
+    endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+  };
+
   try {
     const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
-    start({
-      serviceName: SERVICE_NAME,
-      accessToken: ACCESS_TOKEN,
-      endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-      instrumentations: [getNodeAutoInstrumentations({
-        '@opentelemetry/instrumentation-http': {
-          requestHook: (span, _request) => {
-            if (span.attributes?.['net.peer.port'] === apiPort) {
-              span.setAttribute('peer.service', 'careconnect-api-gwy');
-            }
-          },
+    startOptions.instrumentations = getNodeAutoInstrumentations({
+      '@opentelemetry/instrumentation-http': {
+        requestHook: (span, _request) => {
+          if (span.attributes?.['net.peer.port'] === apiPort) {
+            span.setAttribute('peer.service', 'careconnect-api-gwy');
+          }
         },
-      })],
+      },
     });
+  } catch (_) {
+    // @opentelemetry/auto-instrumentations-node unavailable — default instrumentations used
+  }
+
+  try {
+    start(startOptions);
     console.log(`[tracing] Splunk APM started — service=${SERVICE_NAME}, realm=${REALM}`);
   } catch (err) {
     console.error('[tracing] Failed to start Splunk APM:', err.message);

@@ -1,7 +1,11 @@
-# ── Splunk OTel Collector — VM2 (API / Node.js)
-# Collects: host metrics, Node.js APM traces (OTLP), API JSON logs
-# The Node.js app (@splunk/otel) sends traces to this collector
-# via OTLP rather than directly to Splunk, giving us local buffering.
+# ── Splunk OTel Collector — VM5 (PACS / local)
+# Collects: host metrics, PACS Node.js APM traces (OTLP), PACS JSON logs
+# The PACS server (@splunk/otel) sends traces to this collector via OTLP
+# (OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 in server .env).
+#
+# Traces  → Splunk Observability Cloud APM  (careconnect-pacs service)
+# Metrics → Splunk Observability Cloud Infrastructure Monitoring
+# Logs    → Splunk Platform via HEC  (sourcetype: careconnect:json)
 
 extensions:
   health_check:
@@ -10,7 +14,7 @@ extensions:
     endpoint: 127.0.0.1:55679
 
 receivers:
-  # ── OTLP — receives traces from Node.js @splunk/otel ───────
+  # ── OTLP — receives traces from PACS Node.js server ────────
   otlp:
     protocols:
       grpc:
@@ -39,11 +43,11 @@ receivers:
       load:
       processes:
 
-  # ── Node.js API logs (structured JSON from Winston) ────────
-  file_log/api:
+  # ── PACS server logs (structured JSON from Winston) ─────────
+  file_log/pacs:
     include:
-      - /var/log/careconnect/api-out.log
-      - /var/log/careconnect/api-error.log
+      - /var/log/careconnect/pacs-out.log
+      - /var/log/careconnect/pacs-error.log
     include_file_path: true
     start_at: end
     operators:
@@ -56,33 +60,32 @@ receivers:
           parse_from: attributes.level
           mapping:
             error: error
-            warn: warn
-            info: info
+            warn:  warn
+            info:  info
             debug: debug
       - type: move
         from: attributes.trace_id
-        to: attributes["trace_id"]
+        to:   attributes["trace_id"]
       - type: move
         from: attributes.span_id
-        to: attributes["span_id"]
-
+        to:   attributes["span_id"]
 
 processors:
   memory_limiter:
     check_interval: 5s
-    limit_mib: 384
-    spike_limit_mib: 96
+    limit_mib: 256
+    spike_limit_mib: 64
 
   batch:
     send_batch_size: 512
     timeout: 5s
 
   resourcedetection:
-    detectors: [system, env, ec2]
+    detectors: [system, env]
     timeout: 10s
     override: false
 
-  resource/api:
+  resource/pacs:
     attributes:
       - key: deployment.environment
         value: ${env:APP_ENV}
@@ -91,37 +94,22 @@ processors:
         value: ${env:APP_VERSION}
         action: upsert
       - key: service.name
-        value: careconnect-api
+        value: careconnect-pacs
         action: insert
       - key: host.role
-        value: api
+        value: pacs
         action: insert
 
-  # ── Set peer.service on database spans ──────────────────────
-  # pg instrumentation emits db.system=postgresql on CLIENT spans.
-  # Without peer.service, Splunk APM renders the DB as an anonymous
-  # IP node (10.0.2.5) rather than a named service node.
-  transform/peer_service:
+  # ── Tag WADO image-delivery spans with image.modality ───────
+  # The PACS server sets http.url on WADO spans; extract modality
+  # from the ?studyUID= query param prefix to enable per-modality
+  # latency breakdowns in Splunk APM.
+  transform/wado:
     trace_statements:
       - context: span
         statements:
-          - set(attributes["peer.service"], "careconnect-db") where attributes["db.system"] == "postgresql"
-
-  # ── Tail-based sampling — keep 100% of error traces ────────
-  tail_sampling:
-    decision_wait: 10s
-    num_traces: 50000
-    expected_new_traces_per_sec: 100
-    policies:
-      - name: errors-policy
-        type: status_code
-        status_code: {status_codes: [ERROR]}
-      - name: slow-traces-policy
-        type: latency
-        latency: {threshold_ms: 500}
-      - name: sample-rest
-        type: probabilistic
-        probabilistic: {sampling_percentage: 20}
+          - set(attributes["pacs.endpoint"], "wado") where IsMatch(attributes["http.route"], "/wado.*")
+          - set(attributes["pacs.endpoint"], "worklist") where IsMatch(attributes["http.route"], "/api/worklist.*")
 
 exporters:
   otlp_grpc/splunk_apm:
@@ -137,7 +125,7 @@ exporters:
   splunk_hec/platform:
     token: ${env:SPLUNK_PLATFORM_HEC_TOKEN}
     endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
-    source: careconnect-api
+    source: careconnect-pacs
     sourcetype: careconnect:json
     index: o11y_logs
     timeout: 10s
@@ -149,15 +137,15 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, resource/api, transform/peer_service, tail_sampling, batch]
+      processors: [memory_limiter, resourcedetection, resource/pacs, transform/wado, batch]
       exporters: [otlp_grpc/splunk_apm]
     metrics:
       receivers: [hostmetrics]
-      processors: [memory_limiter, resourcedetection, resource/api, batch]
+      processors: [memory_limiter, resourcedetection, resource/pacs, batch]
       exporters: [signalfx]
     logs:
-      receivers: [file_log/api]
-      processors: [memory_limiter, resourcedetection, resource/api, batch]
+      receivers: [file_log/pacs]
+      processors: [memory_limiter, resourcedetection, resource/pacs, batch]
       exporters: [splunk_hec/platform]
 
   telemetry:

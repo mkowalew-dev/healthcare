@@ -72,11 +72,7 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
           if (svc) span.setAttribute('peer.service', svc);
         },
       },
-      '@opentelemetry/instrumentation-pg': {
-        requestHook: (span, _query) => {
-          span.setAttribute('peer.service', 'careconnect-db');
-        },
-      },
+
     });
   } catch (_) {
     // @opentelemetry/auto-instrumentations-node unavailable — default instrumentations used

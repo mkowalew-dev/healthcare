@@ -1,11 +1,22 @@
-# CareConnect EHR — AWS Deployment Guide
-## Ubuntu 22.04 LTS · Four-VM Architecture · Dual-Portal · Multi-Region Web Tier
+# CareConnect EHR — Deployment Guide
+## AWS Cloud (EHR) + Local Machine (PACS) · Ubuntu 22.04 LTS · Four-VM + Local Architecture
 
 ---
 
 ## Architecture
 
-**Web-only multi-region:** VM1 (Nginx + BFF + React) runs in both us-east-2 and us-west-1. VM2 (API), VM3 (DB), and VM4 (Mock) stay in us-east-2. AWS Global Accelerator routes each user to the nearest healthy web region; both regions proxy API calls to the same internal ALB in us-east-2.
+**Two deployment orchestrators — one config file:**
+
+| Script | Where it runs | What it manages |
+|--------|--------------|-----------------|
+| `deploy/aws-deploy.sh` | Any machine with SSH access to EC2 | Cloud EHR (VM1–VM4) |
+| `deploy/local-deploy.sh` | PACS VM (local) | Local PACS radiology system |
+
+Both read from **`deploy/config.env`** — one source of truth for all configuration.
+
+---
+
+**Web-only multi-region:** VM1 (Nginx + BFF + React) runs in both us-east-2 and us-west-1. VM2 (API), VM3 (DB), and VM4 (Mock) stay in us-east-2. AWS Global Accelerator routes each user to the nearest healthy web region; both regions proxy API calls to the same internal ALB in us-east-2. The PACS system runs on a local VM (VM5) and is managed entirely by `local-deploy.sh`.
 
 ```
   Internet
@@ -36,6 +47,32 @@
   │                   VM3 DB         VM4 Mock         │
   │                   PG :5432       Node :3002       │
   └─────────────────────────────────────────────────┘
+
+  VM5 (local — not in AWS)
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  PACS Server  (pacs/server/)  Node.js · Express · PM2 · :3021       │
+  │    JWT auth — same @careconnect.demo accounts as the EHR             │
+  │    /api/auth/login          issue JWT for radiologist / tech         │
+  │    /api/worklist            reading queue filtered by assignedTo     │
+  │    /api/studies/:uid        study metadata + series list             │
+  │    /api/studies/:uid/series/:uid/instances  WADO-URI list per slice  │
+  │    /wado                    serve raw DICOM binary (unauthenticated) │
+  │    /health                  study count, latency sim status, uptime  │
+  │    /ping                    lightweight ThousandEyes HTTP SLO probe  │
+  │    DICOM index built at startup — scans studies/*.dcm recursively    │
+  │    Seed fallback — realistic metadata if no .dcm files present       │
+  │    Latency sim — IMAGE_LATENCY_MS adds per-slice delay to /wado      │
+  │                                                                      │
+  │  PACS Viewer  (pacs/viewer/)  React 18 · Vite · PM2 · :5174         │
+  │    /worklist    study list from /api/worklist (radiologist's queue)  │
+  │    /viewer/:uid full-screen DICOM viewer                             │
+  │    Cornerstone.js v4 — renders DICOM pixel data into WebGL canvas    │
+  │    WADO-URI loader fetches .dcm from /wado per slice on scroll       │
+  │    Tools: Window/Level · Pan · Zoom · Slice scroll · Ruler · Angle  │
+  │    Overlay: W/L values · slice index · per-image fetch latency       │
+  │    WAN banner: polls /api/demo/latency — warns when latency sim on   │
+  │    Requires COOP + COEP headers (set by Vite) for JPEG2000 workers   │
+  └──────────────────────────────────────────────────────────────────────┘
 ```
 
 **Portal split:**
@@ -69,6 +106,7 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 | VM2 | API | Node.js gateway + 11 domain services (PM2) | none — proxied via VM1 |
 | VM3 | Database | PostgreSQL 17 | none — private only |
 | VM4 | Mock External Services | Node.js mock server | none — private only |
+| **Local** | **PACS Radiology** | **PACS Server (PM2 :3021), PACS Viewer (PM2 :5174)** | **:3021, :5174** |
 
 ### Nginx routing on VM1
 
@@ -85,6 +123,7 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 
 ## Prerequisites
 
+**Cloud EHR (aws-deploy.sh):**
 - [ ] EC2 instances provisioned — Ubuntu 22.04 LTS, t3.medium or larger:
   - **us-east-2**: 1+ VM1 (web), 1+ VM2 (API), 1 VM3 (DB), 1 VM4 (Mock)
   - **us-west-1**: 1+ VM1 (web) only
@@ -95,6 +134,12 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 - [ ] Route 53 DNS records — **point at Global Accelerator, not the ALBs directly**:
   - `careconnect.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
   - `mychart.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
+
+**Local PACS (local-deploy.sh):**
+- [ ] VM5 running Ubuntu 22.04 LTS (or any Linux) — reachable via SSH from your deployment machine
+- [ ] `PACS_PUBLIC_IP` set in `config.env` to VM5's public IP — same role as `*_PUBLIC_IP` vars for cloud VMs
+- [ ] `PACS_SSH_USER` and `PACS_SSH_KEY` set in `config.env` — separate from the EC2 `SSH_USER`/`SSH_KEY`; falls back to those if not set
+- [ ] Node.js 20 and PM2 installed automatically on VM5 by `local-deploy.sh init all` (apt/yum)
 
 ### Security group rules
 
@@ -144,6 +189,8 @@ VM2's security group must allow port 3001 from **both** VPC CIDRs (use2 and uw1)
 
 ## Quick Start
 
+**Cloud EHR (AWS):**
+
 ```bash
 # 1. Fill in your config
 cp deploy/config.env.example deploy/config.env
@@ -155,6 +202,23 @@ bash deploy/aws-deploy.sh init all
 # 3. Verify everything is healthy
 bash deploy/aws-deploy.sh status
 ```
+
+**Local PACS (VM5):**
+
+```bash
+# Uses the same config.env — make sure PACS_* vars are set first
+
+# 4. Install the SSH key on VM5 (one-time, prompts for VM5 password)
+bash deploy/local-deploy.sh copy-id
+
+# 5. Provision VM5: install Node.js, deploy PACS, download DICOM samples (~5–8 min)
+bash deploy/local-deploy.sh init all
+
+# 6. Verify
+bash deploy/local-deploy.sh status
+```
+
+The PACS viewer opens at `http://<PACS_PUBLIC_IP>:5174`. Log in with `dr.chen@careconnect.demo` / `Demo123!`.
 
 That's it for a working deployment. The sections below explain each step in detail.
 
@@ -328,19 +392,95 @@ curl -s -X POST http://<VM1_IP>/api/eprescribe \
 
 ---
 
+## Step 5b — PACS Radiology System (local)
+
+The PACS runs on VM5 (a local machine, not in AWS). It is managed entirely by `deploy/local-deploy.sh`, which reads the same `deploy/config.env` as `aws-deploy.sh`.
+
+### Configure PACS vars in config.env
+
+```bash
+# ── PACS — Radiology Imaging System (local) ──────────────────
+PACS_PUBLIC_IP=127.0.0.1        # use 127.0.0.1 for same-machine; set LAN IP if
+                                 # ThousandEyes Enterprise Agent is on another machine
+PACS_SERVER_PORT=3021            # DICOMweb API
+PACS_VIEWER_PORT=5174            # Cornerstone.js viewer
+PACS_JWT_SECRET=$(openssl rand -hex 32)
+PACS_IMAGE_LATENCY_MS=0          # raise for ThousandEyes WAN degradation demos
+PACS_IMAGE_LATENCY_JITTER_MS=0
+```
+
+### Install and start
+
+```bash
+bash deploy/local-deploy.sh init all
+```
+
+This installs PM2 if missing, runs `npm install` in `pacs/server/` and `pacs/viewer/`, writes `.env` files from `config.env`, and starts both services under PM2.
+
+### DICOM sample images
+
+Sample images are downloaded automatically during `init all`. The download fetches pydicom test files (CT, MRI, X-ray) into `pacs/server/studies/` and the server re-indexes them on startup. To re-download manually:
+
+```bash
+bash deploy/local-deploy.sh init samples
+```
+
+### Demo users
+
+| Email | Password | Role |
+|-------|----------|------|
+| `dr.chen@careconnect.demo` | `Demo123!` | Attending Radiologist — Diagnostic Radiology |
+| `dr.patel@careconnect.demo` | `Demo123!` | Attending Radiologist — Neuroradiology |
+| `tech.jones@careconnect.demo` | `Demo123!` | Lead CT/MRI Technologist |
+
+### Access
+
+| Service | URL |
+|---------|-----|
+| PACS Viewer | `http://<PACS_PUBLIC_IP>:5174` |
+| PACS API health | `http://<PACS_PUBLIC_IP>:3021/health` |
+| PACS ping | `http://<PACS_PUBLIC_IP>:3021/ping` |
+
+---
+
 ## Step 6 — Splunk OTel Collectors (optional)
+
+Requires `SPLUNK_ACCESS_TOKEN`, `SPLUNK_REALM`, `SPLUNK_PLATFORM_HEC_URL`, and `SPLUNK_PLATFORM_HEC_TOKEN` set in `config.env`.
+
+**Cloud EHR (VM1–VM3):**
 
 ```bash
 bash deploy/aws-deploy.sh init otel
 ```
-
-Requires `SPLUNK_ACCESS_TOKEN`, `SPLUNK_REALM`, `SPLUNK_PLATFORM_HEC_URL`, and `SPLUNK_PLATFORM_HEC_TOKEN` set in `config.env`.
 
 | VM | Collector role | Collects |
 |----|---------------|----------|
 | VM1 | `frontend` | Host metrics, Nginx logs, BFF Node.js traces |
 | VM2 | `api` | Host metrics, PM2 app logs, Node.js APM traces |
 | VM3 | `db` | Host metrics, PostgreSQL metrics, DB logs |
+
+**PACS (VM5 / local):**
+
+```bash
+bash deploy/local-deploy.sh init otel
+```
+
+This SSHes to VM5, runs `05-setup-otel-collector.sh pacs`, writes the PACS-specific OTel config (`deploy/configs/otel-collector-pacs.yaml`), and restarts the PACS server with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` so APM traces route through the collector rather than directly to Splunk.
+
+| Signal | Source | Splunk destination |
+|--------|--------|--------------------|
+| APM traces | PACS Node.js → OTLP gRPC :4317 → collector | Splunk O11y Cloud APM — `careconnect-pacs` service |
+| Host metrics | OTel `hostmetrics` receiver on VM5 | Splunk Infrastructure Monitoring |
+| PACS server logs | Winston JSON → `/var/log/careconnect/pacs-out.log` → `file_log` receiver | Splunk Platform via HEC — `sourcetype: careconnect:json` |
+| RUM | `@splunk/otel-web` in Vite bundle | Splunk RUM — `careconnect-pacs-viewer` application |
+
+The PACS `careconnect-pacs` APM service will appear in the Splunk service map as a separate node. WADO image-delivery spans are tagged with `pacs.endpoint=wado` and worklist calls with `pacs.endpoint=worklist`, enabling per-endpoint latency breakdowns — useful when demonstrating ThousandEyes WAN degradation alongside Splunk APM.
+
+**RUM** is baked into the viewer at build time via `VITE_SPLUNK_RUM_TOKEN`. Set this in `config.env` before running `init viewer` or `update viewer`:
+
+```bash
+SPLUNK_RUM_TOKEN=<your-rum-ingest-token>    # type: RUM (separate from APM ingest token)
+```
 
 ---
 
@@ -392,6 +532,43 @@ ssh ubuntu@<API_PUBLIC_IP>
 cd /opt/careconnect/api
 sudo -u careconnect node src/db/seed.js
 ```
+
+### PACS operations
+
+```bash
+# Check PACS status and ThousandEyes test URLs
+bash deploy/local-deploy.sh status
+
+# Stop / start / restart individual services
+bash deploy/local-deploy.sh stop all
+bash deploy/local-deploy.sh start all
+bash deploy/local-deploy.sh restart server
+bash deploy/local-deploy.sh restart viewer
+
+# Tail logs
+bash deploy/local-deploy.sh logs server
+bash deploy/local-deploy.sh logs viewer
+
+# Update PACS code (npm install + PM2 reload, no restart needed)
+bash deploy/local-deploy.sh update all
+```
+
+### Simulate PACS WAN degradation (ThousandEyes demo)
+
+Raise image latency to simulate a slow WAN path between the radiologist workstation and the PACS server. ThousandEyes waterfall charts will show the degradation; radiologists notice slow image loads.
+
+```bash
+# Inject 1500 ms latency + 300 ms jitter on DICOM image delivery
+bash deploy/local-deploy.sh latency set 1500 300
+
+# Check current latency setting
+bash deploy/local-deploy.sh latency status
+
+# Remove latency (restore normal performance)
+bash deploy/local-deploy.sh latency clear
+```
+
+Latency is applied **per image slice** on the `/wado` endpoint — a CT series of 30 slices becomes very apparent at 1500 ms/slice. The `/health` and `/ping` endpoints are unaffected, so ThousandEyes HTTP Server tests stay green while Page Load and Transaction tests degrade, accurately reflecting a WAN-only problem.
 
 ### Adjust mock latency during a demo
 
@@ -467,6 +644,53 @@ curl -v https://mychart.pseudo-co.com/ping
 | Transaction — Patient login (MyChart) | see script below | Step failure |
 | Transaction — Provider ePrescribe (CareConnect) | see script below | Step failure |
 
+### PACS tests (Enterprise Agent targeting VM5)
+
+Set `PACS_PUBLIC_IP` in `config.env` to VM5's IP address. Use `127.0.0.1` only when the ThousandEyes Enterprise Agent runs on the same machine as the PACS server.
+
+Run `bash deploy/local-deploy.sh status` to see the exact URLs ThousandEyes should target.
+
+| Test type | URL | Alert threshold |
+|-----------|-----|----------------|
+| HTTP Server — PACS API | `http://<PACS_PUBLIC_IP>:3021/health` | HTTP ≠ 200 |
+| HTTP Server — PACS Ping | `http://<PACS_PUBLIC_IP>:3021/ping` | HTTP ≠ 200 or latency > 200 ms |
+| Page Load — PACS Viewer | `http://<PACS_PUBLIC_IP>:5174` | Page load > 3 s |
+| Transaction — Radiologist workflow | see script below | Step failure or image load > 5 s |
+
+**HTTP Server — PACS health** response body assertion: verify `"status":"ok"` is present. The `/health` endpoint also returns `studyCount`, `instanceCount`, and `latencySimulation` — useful for content-match verification in TE alerts.
+
+### Transaction test — Radiologist workflow (PACS)
+
+Use this script with ThousandEyes Transaction tests (replace `PACS_IP` and `PACS_VIEWER_PORT` with your values from `config.env`):
+
+```javascript
+import { driver, By, until } from 'thousand-eyes-recorder';
+
+const BASE = 'http://PACS_IP:5174';
+
+// Step 1 — Load login page
+await driver.get(`${BASE}/`);
+await driver.wait(until.titleContains('PACS'), 10000);
+
+// Step 2 — Log in as radiologist
+await driver.findElement(By.css('input[type="email"]')).sendKeys('dr.chen@careconnect.demo');
+await driver.findElement(By.css('input[type="password"]')).sendKeys('Demo123!');
+await driver.findElement(By.css('button[type="submit"]')).click();
+
+// Step 3 — Worklist loads
+await driver.wait(until.urlContains('/worklist'), 10000);
+await driver.wait(until.elementLocated(By.css('[data-testid="study-row"]')), 8000);
+
+// Step 4 — Open first study (CT CHEST)
+await driver.findElement(By.css('[data-testid="study-row"]')).click();
+
+// Step 5 — Image viewer loads (Cornerstone renders first image)
+await driver.wait(until.urlContains('/study/'), 10000);
+await driver.wait(until.elementLocated(By.css('canvas')), 15000);
+```
+
+This transaction measures the full radiology workflow: login → worklist load → image render. When `PACS_IMAGE_LATENCY_MS` is raised, Step 5 degrades first — ThousandEyes isolates the image-delivery hop in the waterfall.
+
 ### Transaction test — Patient login (MyChart)
 
 ```javascript
@@ -508,10 +732,13 @@ await driver.wait(until.elementLocated(By.css('[role="dialog"]')), 3000);
 | Signal | Source | Application | Where to view |
 |--------|--------|-------------|---------------|
 | APM traces | Node.js + OTel SDK on VM2 | `careconnect-api-gwy` + domain services | Splunk APM → Service Map |
+| APM traces | PACS Node.js + OTel SDK on VM5 | `careconnect-pacs` | Splunk APM → Service Map |
 | RUM — clinical | Splunk RUM JS in React clinical bundle | `careconnect-clinical` | Splunk RUM → Session Explorer |
 | RUM — patient | Splunk RUM JS in React patient bundle | `mychart-patient` | Splunk RUM → Session Explorer |
-| Infrastructure | OTel Collector host metrics (all VMs) | — | Splunk Infrastructure Monitoring |
-| Logs | Winston JSON → OTel Collector → Splunk Platform HEC | — | Splunk Log Observer |
+| RUM — PACS viewer | Splunk RUM JS in Vite PACS viewer bundle | `careconnect-pacs-viewer` | Splunk RUM → Session Explorer |
+| Infrastructure | OTel Collector host metrics (VM1–VM3 + VM5) | — | Splunk Infrastructure Monitoring |
+| Logs — EHR | Winston JSON → OTel Collector → Splunk Platform HEC | — | Splunk Log Observer |
+| Logs — PACS | Winston JSON → `/var/log/careconnect/pacs-*.log` → OTel Collector → HEC | — | Splunk Log Observer |
 
 Filter RUM sessions by portal:
 - `app.name = "CareConnect Clinical"` — clinical portal traffic
@@ -559,3 +786,15 @@ index=careconnect path="/fhir/*"
 | API 502 from uw1 web VMs only | VM2 SG blocking cross-region traffic | Add the uw1 VPC CIDR to VM2's security group inbound rule on port 3001 |
 | Global Accelerator not routing to uw1 | ALB health check failing | `curl http://<UW1_VM1_IP>/ping` — if that fails, check Nginx on the uw1 VM |
 | Both portals resolve to use2 only | GA endpoint group weight misconfigured | Verify uw1 endpoint group weight = 100 in Global Accelerator console |
+| `local-deploy.sh` SSH connection refused | `PACS_PUBLIC_IP` wrong or VM5 not running | Verify `PACS_PUBLIC_IP` in config.env; confirm `ssh <PACS_SSH_USER>@<PACS_PUBLIC_IP>` works manually |
+| `local-deploy.sh` Permission denied (publickey) | Wrong `PACS_SSH_KEY` for VM5 | Set `PACS_SSH_KEY` in config.env to the correct private key for VM5 |
+| PM2 not found on VM5 | Node.js install failed during init | Re-run `bash deploy/local-deploy.sh init server` — `ensure_node` is idempotent |
+| PACS server won't start: `Cannot find module` | `npm install` not run | Run `bash deploy/local-deploy.sh init server` or `cd pacs/server && npm install` |
+| PACS viewer won't start: `Cannot find module` | `npm install` not run in viewer | Run `bash deploy/local-deploy.sh init viewer` or `cd pacs/viewer && npm install` |
+| PACS viewer blank / Cornerstone errors | Missing COOP/COEP headers | Viewer must run through Vite (port 5174) — do not open `index.html` directly; `SharedArrayBuffer` requires cross-origin isolation headers set by Vite config |
+| PACS viewer shows "No images available" | DICOM files not downloaded | Run `cd pacs/server && npm run download` then `bash deploy/local-deploy.sh restart server` |
+| PACS `/health` returns `studyCount: 0` | Studies directory empty | Download sample files (see Step 5b above) or check `pacs/server/studies/` exists |
+| ThousandEyes can't reach PACS | `PACS_PUBLIC_IP` is `127.0.0.1` | Set `PACS_PUBLIC_IP` to VM5's IP address in `config.env`, re-run `bash deploy/local-deploy.sh restart server` |
+| PACS latency not clearing after demo | `config.env` not saved | Run `bash deploy/local-deploy.sh latency clear` — this rewrites the `PACS_IMAGE_LATENCY_MS` line in config.env and restarts the server |
+| Viewer login returns 401 | Wrong password or PACS server not running | Confirm server is running: `pm2 status careconnect-pacs`; demo password is `Demo123!` for all three accounts (`@careconnect.demo`) |
+| `dcmjs` parse errors in server logs | Corrupted or unsupported DICOM file | Delete the problem file from `pacs/server/studies/` and restart — server falls back to seed data gracefully |
