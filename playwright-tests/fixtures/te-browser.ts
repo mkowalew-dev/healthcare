@@ -15,54 +15,61 @@ type TeFixtures = {
 };
 
 /**
- * Extended test fixture that launches Chrome with the ThousandEyes extension.
+ * Launches Chrome with the ThousandEyes extension active and authenticated.
  *
- * Extensions require a persistent context (launchPersistentContext) and cannot
- * run in headless mode — both are enforced here regardless of config settings.
+ * There are two modes, controlled by environment variables in .env:
  *
- * Set TE_EXTENSION_PATH in .env to the directory containing the extension's
- * manifest.json.  If the variable is unset the browser still launches; the TE
- * extension simply won't be loaded (useful for local dev).
+ * Mode A - Use an existing Chrome profile (CHROME_USER_DATA_DIR is set)
+ *   The TE extension is already installed and signed in to ThousandEyes inside
+ *   that profile.  No extra flags are needed; Chrome loads all profile extensions
+ *   normally.  This is the mode required for real browser stats to appear in
+ *   ThousandEyes, because the extension must be authenticated.
+ *   headless: false is required - extensions running in headless mode cannot
+ *   capture and report the full browser performance data ThousandEyes needs.
  *
- * If CHROME_USER_DATA_DIR is set the same profile is reused across runs,
- * otherwise a fresh temporary profile is created and deleted after the test.
+ * Mode B - Load extension from an explicit path (TE_EXTENSION_PATH is set,
+ *   CHROME_USER_DATA_DIR is not)
+ *   A fresh temp profile is created per test run and the extension is sideloaded.
+ *   The extension will NOT be authenticated, so ThousandEyes will not receive
+ *   stats.  Useful only for verifying the extension loads without errors.
  */
 export const test = base.extend<TeFixtures>({
   context: async ({}, use, testInfo) => {
-    const extensionPath = process.env.TE_EXTENSION_PATH?.trim();
-    const persistentDataDir = process.env.CHROME_USER_DATA_DIR?.trim();
+    const extensionPath  = process.env.TE_EXTENSION_PATH?.trim();
+    const existingProfile = process.env.CHROME_USER_DATA_DIR?.trim();
 
-    // Use a per-test temp dir unless the caller wants a persistent profile.
-    const ownedTempDir = !persistentDataDir;
-    const userDataDir = persistentDataDir
-      ? persistentDataDir
-      : path.join(
-          os.tmpdir(),
-          `pw-te-${testInfo.workerIndex}-${Date.now()}`,
-        );
-
+    let userDataDir: string;
+    let ownedTempDir = false;
     const args: string[] = [
-      // Chrome's new headless mode (112+): no visible window but still loads
-      // extensions. The old --headless flag silently drops extensions, so we
-      // keep headless:false below (stops Playwright adding the old flag) and
-      // supply --headless=new ourselves.
-      '--headless=new',
-      '--disable-gpu',
       '--no-sandbox',
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
     ];
 
-    if (extensionPath) {
+    if (existingProfile) {
+      // Mode A: real Chrome profile - extension is installed and authenticated.
+      // Do NOT pass --disable-extensions-except; it would suppress the TE extension.
+      userDataDir = existingProfile;
+    } else if (extensionPath) {
+      // Mode B: sideload extension into a fresh temp profile.
+      userDataDir  = path.join(os.tmpdir(), `pw-te-${testInfo.workerIndex}-${Date.now()}`);
+      ownedTempDir = true;
       args.push(
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
       );
+    } else {
+      // No extension config at all - create a minimal temp profile.
+      userDataDir  = path.join(os.tmpdir(), `pw-te-${testInfo.workerIndex}-${Date.now()}`);
+      ownedTempDir = true;
     }
 
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chrome',
-      headless: false, // Keep false so Playwright does not inject the old --headless flag
+      // headless must be false - Chrome extensions cannot capture full browser
+      // performance events (navigation timing, resource timing, paint metrics)
+      // in headless mode, so ThousandEyes would receive incomplete or no data.
+      headless: false,
       args,
       viewport: { width: 1280, height: 900 },
       ignoreHTTPSErrors: true,
@@ -75,7 +82,7 @@ export const test = base.extend<TeFixtures>({
       try {
         fs.rmSync(userDataDir, { recursive: true, force: true });
       } catch {
-        // Cleanup is best-effort; Windows may hold file locks briefly after close
+        // best-effort; Windows may hold file locks briefly after close
       }
     }
   },
