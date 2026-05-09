@@ -6,7 +6,7 @@ const PASSWORD = process.env.DEMO_PASSWORD || 'Demo123!';
 test.describe('PACS - Radiology Workstation Login', () => {
   test('login page loads and radiologist can sign in to worklist', async ({ page }) => {
     // 1. Navigate to login
-    await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE_URL}/login`, { waitUntil: 'domcontentloaded' });
 
     // 2. Login form visible
     const form = page.locator('[data-testid="pacs-login-form"]');

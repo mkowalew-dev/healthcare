@@ -40,6 +40,11 @@ export const test = base.extend<TeFixtures>({
       '--disable-blink-features=AutomationControlled',
       '--no-first-run',
       '--no-default-browser-check',
+      // Prevent Chrome from showing session-restore dialogs or crash bubbles
+      // that block Playwright from navigating away from about:blank.
+      '--disable-session-crashed-bubble',
+      '--disable-infobars',
+      '--hide-crash-restore-bubble',
     ];
 
     if (profilePath) {

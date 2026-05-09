@@ -6,7 +6,7 @@ const PASSWORD = process.env.DEMO_PASSWORD || 'Demo123!';
 test.describe('CareConnect - Provider Login', () => {
   test('login page loads and provider can sign in', async ({ page }) => {
     // 1. Navigate to login
-    await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE_URL}/login`, { waitUntil: 'domcontentloaded' });
 
     // 2. Login form visible
     const form = page.locator('[data-testid="login-form"]');

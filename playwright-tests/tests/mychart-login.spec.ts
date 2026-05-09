@@ -7,7 +7,7 @@ const PASSWORD = process.env.DEMO_PASSWORD || 'Demo123!';
 test.describe('MyChart - Patient Portal Login', () => {
   test('login page loads and patient can sign in to dashboard', async ({ page }) => {
     // 1. Navigate to login
-    await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle' });
+    await page.goto(`${BASE_URL}/login`, { waitUntil: 'domcontentloaded' });
 
     // 2. Login form visible
     const form = page.locator('[data-testid="login-form"]');
