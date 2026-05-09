@@ -48,7 +48,7 @@ export const test = base.extend<TeFixtures>({
       // mis-parsing a value that contains a space (e.g. "Profile 1").
       const profileDir  = path.basename(profilePath);
       userDataDir = path.dirname(profilePath);
-      args.push('--profile-directory', profileDir);
+      args.push(`--profile-directory=${profileDir}`);
     } else if (extensionPath) {
       // Fallback: sideload extension into a fresh temp profile.
       // Extension will NOT be authenticated - ThousandEyes will not receive stats.
