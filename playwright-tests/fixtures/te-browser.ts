@@ -71,9 +71,18 @@ export const test = base.extend<TeFixtures>({
       // in headless mode, so ThousandEyes would receive incomplete or no data.
       headless: false,
       args,
+      // Playwright adds --disable-component-extensions-with-background-pages by
+      // default, which prevents extension background service workers from
+      // starting.  The ThousandEyes extension depends on its background worker
+      // to connect back to the EPA and report browser metrics, so we remove it.
+      ignoreDefaultArgs: ['--disable-component-extensions-with-background-pages'],
       viewport: { width: 1280, height: 900 },
       ignoreHTTPSErrors: true,
     });
+
+    // Give the ThousandEyes extension background worker time to start and
+    // establish its connection to the local EPA agent before any page load.
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     await use(context);
     await context.close();
