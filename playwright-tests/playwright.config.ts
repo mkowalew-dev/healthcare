@@ -23,8 +23,6 @@ export default defineConfig({
   ],
 
   use: {
-    // Headless must be false — Chrome extensions are not loaded in headless mode
-    headless: false,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'on-first-retry',

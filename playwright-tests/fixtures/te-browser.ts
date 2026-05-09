@@ -42,10 +42,14 @@ export const test = base.extend<TeFixtures>({
         );
 
     const args: string[] = [
+      // Chrome's new headless mode (112+): no visible window but still loads
+      // extensions. The old --headless flag silently drops extensions, so we
+      // keep headless:false below (stops Playwright adding the old flag) and
+      // supply --headless=new ourselves.
+      '--headless=new',
+      '--disable-gpu',
       '--no-sandbox',
       '--disable-dev-shm-usage',
-      // Prevent Chrome from flagging Playwright as automation so that the TE
-      // extension receives the same page lifecycle events as a real user session.
       '--disable-blink-features=AutomationControlled',
     ];
 
@@ -58,7 +62,7 @@ export const test = base.extend<TeFixtures>({
 
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chrome',
-      headless: false, // Extensions are silently skipped in headless mode
+      headless: false, // Keep false so Playwright does not inject the old --headless flag
       args,
       viewport: { width: 1280, height: 900 },
       ignoreHTTPSErrors: true,
