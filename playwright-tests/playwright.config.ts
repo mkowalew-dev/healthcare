@@ -23,6 +23,7 @@ export default defineConfig({
   ],
 
   use: {
+    // headless is managed by the te-browser fixture, not here
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'on-first-retry',
