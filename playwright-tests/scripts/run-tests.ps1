@@ -23,7 +23,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ── Paths ────────────────────────────────────────────────────────────────────
+# -- Paths ---------------------------------------------------------------------
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir     = Split-Path -Parent $ScriptDir
 $LogDir      = Join-Path $RootDir "logs"
@@ -31,7 +31,7 @@ $EnvFile     = Join-Path $RootDir ".env"
 $Timestamp   = Get-Date -Format "yyyyMMdd_HHmmss"
 $LogFile     = Join-Path $LogDir "test-run_$Timestamp.log"
 
-# ── Ensure log directory exists ───────────────────────────────────────────────
+# -- Ensure log directory exists -----------------------------------------------
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir | Out-Null
 }
@@ -47,7 +47,7 @@ Write-Log "=== CareConnect Synthetic Test Run ==="
 Write-Log "Root directory : $RootDir"
 Write-Log "Log file       : $LogFile"
 
-# ── Load .env into the current process environment ────────────────────────────
+# -- Load .env into the current process environment ----------------------------
 if (Test-Path $EnvFile) {
     Write-Log "Loading environment from $EnvFile"
     Get-Content $EnvFile | Where-Object { $_ -match '^\s*[^#]\S+=\S' } | ForEach-Object {
@@ -57,15 +57,15 @@ if (Test-Path $EnvFile) {
         [System.Environment]::SetEnvironmentVariable($key, $value, "Process")
     }
 } else {
-    Write-Log "WARNING: .env not found — using defaults / system environment variables"
+    Write-Log "WARNING: .env not found - using defaults / system environment variables"
 }
 
-# ── Change to the playwright-tests directory ──────────────────────────────────
+# -- Change to the playwright-tests directory ----------------------------------
 Set-Location $RootDir
 
-# ── Install dependencies if node_modules is missing ──────────────────────────
+# -- Install dependencies if node_modules is missing --------------------------
 if (-not (Test-Path (Join-Path $RootDir "node_modules"))) {
-    Write-Log "node_modules not found — running npm install..."
+    Write-Log "node_modules not found - running npm install..."
     npm install 2>&1 | Tee-Object -Append -FilePath $LogFile
     if ($LASTEXITCODE -ne 0) {
         Write-Log "ERROR: npm install failed (exit $LASTEXITCODE)"
@@ -73,14 +73,14 @@ if (-not (Test-Path (Join-Path $RootDir "node_modules"))) {
     }
 }
 
-# ── Install Playwright browser (Chrome) if missing ───────────────────────────
+# -- Install Playwright browser (Chrome) if missing ---------------------------
 $PlaywrightBrowsers = Join-Path $env:LOCALAPPDATA "ms-playwright"
 if (-not (Test-Path $PlaywrightBrowsers)) {
-    Write-Log "Playwright browsers not found — running install..."
+    Write-Log "Playwright browsers not found - running install..."
     npx playwright install chrome 2>&1 | Tee-Object -Append -FilePath $LogFile
 }
 
-# ── Build Playwright command ──────────────────────────────────────────────────
+# -- Build Playwright command --------------------------------------------------
 $PlaywrightArgs = @("playwright", "test", "--reporter=list")
 
 if ($TestFilter -ne "") {
@@ -92,7 +92,7 @@ if ($TestFilter -ne "") {
 Write-Log "Running: npx $($PlaywrightArgs -join ' ')"
 Write-Log "------------------------------------------------------------"
 
-# ── Execute tests ─────────────────────────────────────────────────────────────
+# -- Execute tests -------------------------------------------------------------
 npx @PlaywrightArgs 2>&1 | Tee-Object -Append -FilePath $LogFile
 $ExitCode = $LASTEXITCODE
 
@@ -103,7 +103,7 @@ if ($ExitCode -eq 0) {
     Write-Log "RESULT: One or more tests FAILED (exit $ExitCode)"
 }
 
-# ── Prune logs older than 30 days ─────────────────────────────────────────────
+# -- Prune logs older than 30 days ---------------------------------------------
 Get-ChildItem -Path $LogDir -Filter "test-run_*.log" |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) } |
     Remove-Item -Force

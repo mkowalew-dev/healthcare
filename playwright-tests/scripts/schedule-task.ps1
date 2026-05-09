@@ -13,6 +13,10 @@
     -ServicePassword, or run the script as an Administrator and choose a
     service account.
 
+.PARAMETER TestOnly
+    Run the Playwright tests and exit - do not register the scheduled task.
+    Use this to validate configuration before committing to the full provisioning.
+
 .PARAMETER TestsRoot
     Full path to the playwright-tests directory.
     Defaults to the parent of this script's directory.
@@ -30,12 +34,8 @@
 .PARAMETER ServicePassword
     Password for -ServiceUser (only with -RunAsService).
 
-.PARAMETER TestOnly
-    Run the Playwright tests and exit — do not register the scheduled task.
-    Use this to validate configuration before committing to the full provisioning.
-
 .EXAMPLE
-    # Validate tests only — no task registered
+    # Validate tests only - no task registered
     .\scripts\schedule-task.ps1 -TestOnly
 
 .EXAMPLE
@@ -65,21 +65,27 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ── Resolve paths ─────────────────────────────────────────────────────────────
+# -- Resolve paths -------------------------------------------------------------
 if ($TestsRoot -eq "") {
     $TestsRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 }
 
-$RunScript = Join-Path $TestsRoot "scripts\run-tests.ps1"
+$RunScript  = Join-Path $TestsRoot "scripts\run-tests.ps1"
+$PowerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+
 if (-not (Test-Path $RunScript)) {
     Write-Error "run-tests.ps1 not found at: $RunScript"
     exit 1
 }
 
-# ── Step 1: Run tests ─────────────────────────────────────────────────────────
-$StepLabel = if ($TestOnly) { "" } else { "Step 1/2 — " }
-Write-Host ""
-Write-Host "${StepLabel}Running tests to validate configuration..." -ForegroundColor Cyan
+# -- Step 1: Run tests ---------------------------------------------------------
+if ($TestOnly) {
+    Write-Host ""
+    Write-Host "Running tests to validate configuration..." -ForegroundColor Cyan
+} else {
+    Write-Host ""
+    Write-Host "Step 1/2 - Running tests to validate configuration..." -ForegroundColor Cyan
+}
 Write-Host ""
 
 & $PowerShell -NonInteractive -NoProfile -ExecutionPolicy Bypass -File $RunScript
@@ -89,7 +95,7 @@ Write-Host ""
 if ($TestExitCode -ne 0) {
     Write-Host "Tests FAILED (exit $TestExitCode)." -ForegroundColor Red
     if (-not $TestOnly) {
-        Write-Host "PROVISIONING ABORTED — fix the failures above then re-run this script."
+        Write-Host "PROVISIONING ABORTED - fix the failures above then re-run this script."
     }
     exit $TestExitCode
 }
@@ -98,42 +104,38 @@ Write-Host "All tests passed." -ForegroundColor Green
 
 if ($TestOnly) {
     Write-Host ""
-    Write-Host "(-TestOnly flag set — skipping scheduled task registration.)"
+    Write-Host "(-TestOnly flag set - skipping scheduled task registration.)"
     exit 0
 }
 
+# -- Step 2: Register the scheduled task ---------------------------------------
 Write-Host ""
-Write-Host "Step 2/2 — Registering Windows Scheduled Task..." -ForegroundColor Cyan
+Write-Host "Step 2/2 - Registering Windows Scheduled Task..." -ForegroundColor Cyan
 Write-Host ""
 
-$TaskName   = "CareConnect-Synthetic-Tests"
-$TaskPath   = "\CareConnect\"
-$PowerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+$TaskName = "CareConnect-Synthetic-Tests"
+$TaskPath = "\CareConnect\"
 
-# ── Build the action ──────────────────────────────────────────────────────────
 $Arguments = "-NonInteractive -NoProfile -ExecutionPolicy Bypass -File `"$RunScript`""
 $Action    = New-ScheduledTaskAction `
     -Execute  $PowerShell `
     -Argument $Arguments `
     -WorkingDirectory $TestsRoot
 
-# ── Build the trigger (repeat every N minutes, indefinitely) ──────────────────
-$StartTime   = (Get-Date).Date.AddHours(0)   # midnight today — first fire is next aligned interval
+$StartTime   = (Get-Date).Date.AddHours(0)
 $RepeatEvery = [System.TimeSpan]::FromMinutes($IntervalMinutes)
-$Duration    = [System.TimeSpan]::MaxValue    # repeat indefinitely
+$Duration    = [System.TimeSpan]::MaxValue
 
 $Trigger = New-ScheduledTaskTrigger -Once -At $StartTime `
     -RepetitionInterval $RepeatEvery `
     -RepetitionDuration $Duration
 
-# ── Build settings ────────────────────────────────────────────────────────────
 $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit  ([System.TimeSpan]::FromMinutes([Math]::Max(10, $IntervalMinutes * 2))) `
     -MultipleInstances   IgnoreNew `
     -StartWhenAvailable  `
     -RunOnlyIfNetworkAvailable
 
-# ── Principal (who runs the task) ─────────────────────────────────────────────
 if ($RunAsService) {
     if ($ServiceUser -eq "" -or $ServicePassword -eq "") {
         Write-Error "-ServiceUser and -ServicePassword are required with -RunAsService"
@@ -150,7 +152,6 @@ if ($RunAsService) {
         -RunLevel  Limited
 }
 
-# ── Register (or overwrite) the task ─────────────────────────────────────────
 $TaskParams = @{
     TaskName  = $TaskName
     TaskPath  = $TaskPath
@@ -167,8 +168,7 @@ if ($RunAsService) {
 
 Register-ScheduledTask @TaskParams | Out-Null
 
-Write-Host ""
-Write-Host "✓ Scheduled task registered successfully" -ForegroundColor Green
+Write-Host "Scheduled task registered successfully." -ForegroundColor Green
 Write-Host ""
 Write-Host "  Task name  : $TaskPath$TaskName"
 Write-Host "  Interval   : every $IntervalMinutes minute(s)"
