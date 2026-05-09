@@ -23,6 +23,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Force UTF-8 so Playwright's Unicode output (checkmarks, box-drawing separators)
+# renders correctly instead of garbling as Γ£ô / ΓöÇ / ΓÇ║ etc.
+chcp 65001 | Out-Null
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding            = [System.Text.Encoding]::UTF8
+
 # -- Paths ---------------------------------------------------------------------
 $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RootDir     = Split-Path -Parent $ScriptDir
