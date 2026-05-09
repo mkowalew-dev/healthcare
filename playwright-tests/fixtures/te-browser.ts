@@ -84,7 +84,10 @@ export const test = base.extend<TeFixtures>({
   },
 
   page: async ({ context }, use) => {
-    const page = await context.newPage();
+    // launchPersistentContext opens an initial about:blank tab automatically.
+    // Reuse it rather than opening a second tab alongside it.
+    const existing = context.pages().find(p => p.url() === 'about:blank');
+    const page = existing ?? await context.newPage();
     await use(page);
   },
 });
