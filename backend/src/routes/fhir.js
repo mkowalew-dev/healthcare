@@ -161,8 +161,8 @@ function bundleResponse(resourceType, entries, total) {
 
 // --- FHIR Endpoints ---
 
-// GET /fhir/metadata - CapabilityStatement (no auth required)
-router.get('/metadata', (req, res) => {
+// GET /fhir/metadata - CapabilityStatement
+router.get('/metadata', authenticate, (req, res) => {
   res.json({
     resourceType: 'CapabilityStatement',
     id: 'careconnect-capability',

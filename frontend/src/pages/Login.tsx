@@ -52,7 +52,7 @@ function CiscoMark({ size = 40 }: { size?: number }) {
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email] = useState('dr.chen@careconnect.demo');
+  const [email] = useState(currentPortal === 'patient' ? 'patient@demo.com' : 'dr.chen@careconnect.demo');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');

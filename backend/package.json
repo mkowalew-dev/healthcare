@@ -9,7 +9,8 @@
     "seed": "node src/db/seed.js",
     "mock": "nodemon src/mock-services.js",
     "mock:start": "node src/mock-services.js",
-    "dev:all": "concurrently \"npm run dev\" \"npm run mock\""
+    "dev:all": "concurrently \"npm run dev\" \"npm run mock\"",
+    "test": "node tests/api-test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",

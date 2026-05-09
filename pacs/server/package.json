@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "download": "bash scripts/download-samples.sh"
+    "download": "bash scripts/download-samples.sh",
+    "test": "node tests/api-test.js"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
