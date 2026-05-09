@@ -14,7 +14,7 @@ test.describe('CareConnect – Provider Login', () => {
 
     // Email is pre-filled and read-only (dr.chen@careconnect.demo → provider role)
     const emailInput = page.locator('[data-testid="login-email-input"]');
-    await expect(emailInput).toHaveValue(/careconnect\.demo/);
+    await expect(emailInput).toHaveValue('provider@demo.com');
 
     // ── 3. Enter password and submit ────────────────────────────────────────
     await page.fill('[data-testid="login-password-input"]', PASSWORD);

@@ -67,6 +67,27 @@ if (-not (Test-Path $RunScript)) {
     exit 1
 }
 
+# ── Provisioning validation: run tests before registering the task ────────────
+Write-Host ""
+Write-Host "Step 1/2 — Running tests to validate configuration..." -ForegroundColor Cyan
+Write-Host ""
+
+& $PowerShell -NonInteractive -NoProfile -ExecutionPolicy Bypass -File $RunScript
+$TestExitCode = $LASTEXITCODE
+
+Write-Host ""
+if ($TestExitCode -ne 0) {
+    Write-Host "PROVISIONING ABORTED: Tests failed (exit $TestExitCode)." -ForegroundColor Red
+    Write-Host "Fix the failures reported above before registering the scheduled task."
+    Write-Host "Re-run this script once the tests pass."
+    exit $TestExitCode
+}
+
+Write-Host "Tests passed. Proceeding to register the scheduled task..." -ForegroundColor Green
+Write-Host ""
+Write-Host "Step 2/2 — Registering Windows Scheduled Task..." -ForegroundColor Cyan
+Write-Host ""
+
 $TaskName   = "CareConnect-Synthetic-Tests"
 $TaskPath   = "\CareConnect\"
 $PowerShell = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
