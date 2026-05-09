@@ -26,6 +26,18 @@ export const test = base.extend<TeFixtures>({
     const browser = await chromium.connectOverCDP(cdpUrl, { timeout: 15_000 });
     const context = browser.contexts()[0];
 
+    // Log whether the TE Endpoint Agent service worker is already registered.
+    // With connectOverCDP, Chrome is already running so the MV3 service worker
+    // should be present — if this logs "not detected", the extension may not be
+    // loaded in the profile Chrome was started with.
+    const workers = context.serviceWorkers();
+    const teWorker = workers.find(w => w.url().includes('ddnennmeinlkhkmajmmfaojcnpddnpgb'));
+    console.log(
+      teWorker
+        ? `[TE] Extension service worker detected: ${teWorker.url()}`
+        : '[TE] WARNING: Extension service worker not detected — metrics may not be reported'
+    );
+
     await use(context);
 
     // Disconnect Playwright but leave Chrome running - run-tests.ps1 kills it

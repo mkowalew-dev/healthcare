@@ -3,9 +3,10 @@
     Run the CareConnect / MyChart / PACS Playwright login tests.
 
 .DESCRIPTION
-    Loads the .env file from the playwright-tests directory, installs
-    dependencies if needed, executes all tests, and writes a timestamped
-    log to .\logs\.
+    Loads the .env file from the playwright-tests directory, launches Chrome
+    externally with a remote-debugging port (so the ThousandEyes extension runs
+    without automation flags), connects Playwright via CDP, executes all tests,
+    and writes a timestamped log to .\logs\.
 
 .PARAMETER TestFilter
     Optional Playwright --grep pattern to run a subset of tests.
@@ -24,7 +25,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 # Force UTF-8 so Playwright's Unicode output (checkmarks, box-drawing separators)
-# renders correctly instead of garbling as Γ£ô / ΓöÇ / ΓÇ║ etc.
+# renders correctly instead of garbling as Gce / GoC / GCI etc.
 chcp 65001 | Out-Null
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding            = [System.Text.Encoding]::UTF8
@@ -53,16 +54,6 @@ Write-Log "=== CareConnect Synthetic Test Run ==="
 Write-Log "Root directory : $RootDir"
 Write-Log "Log file       : $LogFile"
 
-# Kill any running Chrome processes before launching.  Chrome's singleton
-# mechanism prevents a second process from opening the same profile, which
-# causes Playwright to control an empty browser that never navigates.
-$chromeProcs = Get-Process -Name chrome -ErrorAction SilentlyContinue
-if ($chromeProcs) {
-    Write-Log "Stopping $($chromeProcs.Count) existing Chrome process(es)..."
-    $chromeProcs | Stop-Process -Force
-    Start-Sleep -Seconds 2
-}
-
 # -- Load .env into the current process environment ----------------------------
 if (Test-Path $EnvFile) {
     Write-Log "Loading environment from $EnvFile"
@@ -76,6 +67,82 @@ if (Test-Path $EnvFile) {
     Write-Log "WARNING: .env not found - using defaults / system environment variables"
 }
 
+# -- Resolve Chrome config from environment ------------------------------------
+$UserDataDir = $env:CHROME_USER_DATA_DIR
+if (-not $UserDataDir) {
+    Write-Log "ERROR: CHROME_USER_DATA_DIR is not set in .env"
+    exit 1
+}
+
+$ProfileDir = if ($env:CHROME_PROFILE_DIR) { $env:CHROME_PROFILE_DIR } else { "Profile 1" }
+$DebugPort  = if ($env:CHROME_DEBUG_PORT)  { $env:CHROME_DEBUG_PORT  } else { "9222" }
+
+Write-Log "Chrome profile : $UserDataDir\$ProfileDir"
+Write-Log "CDP port       : $DebugPort"
+
+# -- Find Chrome executable ----------------------------------------------------
+$ChromeCandidates = @(
+    "C:\Program Files\Google\Chrome\Application\chrome.exe",
+    "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+)
+$ChromeExe = $ChromeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $ChromeExe) {
+    Write-Log "ERROR: Chrome executable not found in standard locations"
+    exit 1
+}
+Write-Log "Chrome         : $ChromeExe"
+
+# -- Kill any existing Chrome so the profile singleton lock is released --------
+$existingChrome = Get-Process -Name chrome -ErrorAction SilentlyContinue
+if ($existingChrome) {
+    Write-Log "Stopping $($existingChrome.Count) existing Chrome process(es)..."
+    $existingChrome | Stop-Process -Force
+    Start-Sleep -Seconds 2
+}
+
+# -- Launch Chrome externally with remote-debugging-port ----------------------
+# Running Chrome this way means Playwright's --enable-automation flag is never
+# added, so the ThousandEyes Endpoint Agent extension reports metrics normally.
+$ChromeArgs = @(
+    "--remote-debugging-port=$DebugPort",
+    "--user-data-dir=$UserDataDir",
+    "--profile-directory=$ProfileDir",
+    "--no-restore-session-state",
+    "--disable-session-crashed-bubble",
+    "--hide-crash-restore-bubble",
+    "--no-first-run",
+    "about:blank"
+)
+
+Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
+$ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgs -PassThru
+
+# -- Wait for Chrome CDP to become available -----------------------------------
+$CdpUrl  = "http://localhost:$DebugPort/json"
+$MaxWait = 30
+$Elapsed = 0
+$CdpReady = $false
+
+while ($Elapsed -lt $MaxWait) {
+    try {
+        Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
+        $CdpReady = $true
+        break
+    } catch {
+        Start-Sleep -Seconds 1
+        $Elapsed++
+    }
+}
+
+if (-not $CdpReady) {
+    Write-Log "ERROR: Chrome CDP not ready after $MaxWait seconds"
+    Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
+    exit 1
+}
+
+Write-Log "Chrome CDP ready (waited ${Elapsed}s)"
+
 # -- Change to the playwright-tests directory ----------------------------------
 Set-Location $RootDir
 
@@ -85,6 +152,7 @@ if (-not (Test-Path (Join-Path $RootDir "node_modules"))) {
     npm install 2>&1 | Tee-Object -Append -FilePath $LogFile
     if ($LASTEXITCODE -ne 0) {
         Write-Log "ERROR: npm install failed (exit $LASTEXITCODE)"
+        Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
         exit $LASTEXITCODE
     }
 }
@@ -117,6 +185,17 @@ if ($ExitCode -eq 0) {
     Write-Log "RESULT: All tests PASSED"
 } else {
     Write-Log "RESULT: One or more tests FAILED (exit $ExitCode)"
+}
+
+# -- Stop Chrome - let the extension flush any pending metrics first -----------
+# A short grace period gives the TE extension time to report the final page view
+# before the process is killed.
+Write-Log "Waiting 5s for TE extension to flush metrics..."
+Start-Sleep -Seconds 5
+
+if (-not $ChromeProcess.HasExited) {
+    Write-Log "Stopping Chrome (PID $($ChromeProcess.Id))..."
+    Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
 }
 
 # -- Prune logs older than 30 days ---------------------------------------------
