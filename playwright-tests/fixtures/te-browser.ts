@@ -96,12 +96,15 @@ export const test = base.extend<TeFixtures>({
   },
 
   page: async ({ context }, use) => {
-    // With an existing Chrome profile, Chrome opens at least one page on its
-    // own (new-tab or a restored tab). Reuse that page instead of creating
-    // another one — a second about:blank on top of an already-busy browser
-    // can fail to receive CDP navigate commands while session state settles.
-    const existing = context.pages();
-    const page = existing.length > 0 ? existing[0] : await context.newPage();
+    // When using a real Chrome profile the ThousandEyes extension background
+    // page (chrome-extension://...) shows up in context.pages() and is NOT
+    // navigable.  Calling page.goto() on it silently does nothing, which
+    // causes the test to hang on about:blank.  Filter to real http/about pages
+    // only and create a fresh one if none exist yet.
+    const navigable = context.pages().filter(
+      p => !p.url().startsWith('chrome-extension://') && !p.url().startsWith('chrome://')
+    );
+    const page = navigable.length > 0 ? navigable[0] : await context.newPage();
     await use(page);
   },
 });
