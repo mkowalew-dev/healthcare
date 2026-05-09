@@ -71,7 +71,15 @@ export const test = base.extend<TeFixtures>({
       channel: 'chrome',
       headless: false,
       args,
-      ignoreDefaultArgs: ['--disable-component-extensions-with-background-pages'],
+      ignoreDefaultArgs: [
+        // Playwright adds these flags by default. They signal to Chrome (and
+        // extensions) that the browser is under automation, which causes the
+        // ThousandEyes Endpoint Agent extension to suppress metric collection.
+        '--enable-automation',
+        '--disable-component-extensions-with-background-pages',
+        '--password-store=basic',
+        '--use-mock-keychain',
+      ],
       viewport: { width: 1280, height: 900 },
       ignoreHTTPSErrors: true,
     });
@@ -84,8 +92,7 @@ export const test = base.extend<TeFixtures>({
   },
 
   page: async ({ context }, use) => {
-    // launchPersistentContext opens an initial about:blank tab automatically.
-    // Reuse it rather than opening a second tab alongside it.
+    // Reuse the initial about:blank tab Chrome opened on launch.
     const existing = context.pages().find(p => p.url() === 'about:blank');
     const page = existing ?? await context.newPage();
     await use(page);
