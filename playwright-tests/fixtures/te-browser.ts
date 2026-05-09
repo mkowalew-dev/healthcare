@@ -6,7 +6,6 @@ import {
   type Page,
 } from '@playwright/test';
 import path from 'path';
-import fs from 'fs';
 
 type TeFixtures = {
   context: BrowserContext;
@@ -14,34 +13,25 @@ type TeFixtures = {
 };
 
 /**
- * Launches Chrome with the ThousandEyes extension loaded from an explicit path
- * into a STABLE dedicated test profile.
+ * Launches Chrome using the existing user profile where the ThousandEyes
+ * Endpoint Agent extension is already installed and authenticated.
  *
- * Why a stable profile instead of the real Chrome profile:
- *   Using the real Chrome user data directory causes session-restore locks,
- *   Chrome singleton conflicts, and extension background pages that block
- *   Playwright navigation.  A stable dedicated directory avoids all of that
- *   while still letting the TE extension persist its EPA connection state
- *   between test runs.
+ * Set CHROME_PROFILE_PATH in .env to the value shown under "Profile Path"
+ * in chrome://version/ - paste it exactly, spaces are handled automatically.
  *
- * Required .env settings:
- *   TE_EXTENSION_PATH  - full path to the folder containing the TE extension's
- *                        manifest.json (found inside Profile 1\Extensions\<id>\<version>)
- *   CHROME_USER_DATA_DIR - a dedicated directory ONLY for these tests, e.g.
- *                        C:\playwright-te-profile  (NOT the real Chrome User Data)
- *
- * First run: Chrome will open and the extension will connect to the local EPA
- * agent.  Subsequent runs reuse the same profile so the connection is already
- * established.
+ * The run-tests.ps1 script kills any existing Chrome processes before
+ * launching to prevent Chrome's singleton from hijacking the profile lock.
  */
 export const test = base.extend<TeFixtures>({
   context: async ({}, use) => {
+    const profilePath   = process.env.CHROME_PROFILE_PATH?.trim();
     const extensionPath = process.env.TE_EXTENSION_PATH?.trim();
-    const userDataDir   = process.env.CHROME_USER_DATA_DIR?.trim()
-      || 'C:\\playwright-te-profile';
 
-    if (!fs.existsSync(userDataDir)) {
-      fs.mkdirSync(userDataDir, { recursive: true });
+    if (!profilePath && !extensionPath) {
+      throw new Error(
+        'Set CHROME_PROFILE_PATH in .env to the Chrome profile where the ' +
+        'ThousandEyes Endpoint Agent extension is authenticated.'
+      );
     }
 
     const args: string[] = [
@@ -56,25 +46,27 @@ export const test = base.extend<TeFixtures>({
       '--hide-crash-restore-bubble',
     ];
 
-    if (extensionPath) {
-      // Only restrict to a specific extension path when one is explicitly set.
-      // If the TE extension is policy-managed, omit these flags entirely -
-      // --disable-extensions-except would block the policy extension from loading.
+    let userDataDir: string;
+
+    if (profilePath) {
+      // Split "C:\...\User Data\Profile 1" into parent dir + profile name.
+      // Passed as a single --flag=value string so spaces in the name are safe.
+      userDataDir = path.dirname(profilePath);
+      args.push(`--profile-directory=${path.basename(profilePath)}`);
+    } else {
+      // Fallback: sideload extension into a temp profile.
+      userDataDir = path.join(process.env.TEMP || 'C:\\Temp', `pw-te-${Date.now()}`);
       args.push(
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
       );
     }
-    // If no extensionPath: Chrome loads all policy-managed extensions normally.
 
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chrome',
       headless: false,
       args,
       ignoreDefaultArgs: [
-        // Playwright adds these flags by default. They signal to Chrome (and
-        // extensions) that the browser is under automation, which causes the
-        // ThousandEyes Endpoint Agent extension to suppress metric collection.
         '--enable-automation',
         '--disable-component-extensions-with-background-pages',
         '--password-store=basic',
@@ -84,7 +76,8 @@ export const test = base.extend<TeFixtures>({
       ignoreHTTPSErrors: true,
     });
 
-    // Give the TE extension time to connect to the EPA agent before navigating.
+    // Allow the Endpoint Agent extension time to connect to the local EA
+    // service before any page navigation begins.
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     await use(context);
@@ -92,7 +85,7 @@ export const test = base.extend<TeFixtures>({
   },
 
   page: async ({ context }, use) => {
-    // Reuse the initial about:blank tab Chrome opened on launch.
+    // Reuse the initial about:blank tab Chrome opens on launch.
     const existing = context.pages().find(p => p.url() === 'about:blank');
     const page = existing ?? await context.newPage();
     await use(page);

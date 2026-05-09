@@ -53,6 +53,16 @@ Write-Log "=== CareConnect Synthetic Test Run ==="
 Write-Log "Root directory : $RootDir"
 Write-Log "Log file       : $LogFile"
 
+# Kill any running Chrome processes before launching.  Chrome's singleton
+# mechanism prevents a second process from opening the same profile, which
+# causes Playwright to control an empty browser that never navigates.
+$chromeProcs = Get-Process -Name chrome -ErrorAction SilentlyContinue
+if ($chromeProcs) {
+    Write-Log "Stopping $($chromeProcs.Count) existing Chrome process(es)..."
+    $chromeProcs | Stop-Process -Force
+    Start-Sleep -Seconds 2
+}
+
 # -- Load .env into the current process environment ----------------------------
 if (Test-Path $EnvFile) {
     Write-Log "Loading environment from $EnvFile"
