@@ -40,8 +40,10 @@ export const test = base.extend<TeFixtures>({
       '--disable-blink-features=AutomationControlled',
       '--no-first-run',
       '--no-default-browser-check',
-      // Prevent Chrome from showing session-restore dialogs or crash bubbles
-      // that block Playwright from navigating away from about:blank.
+      // Prevent Chrome from restoring the previous session on startup.
+      // Session restore locks the browser into a recovery state that blocks
+      // Playwright from navigating new pages away from about:blank.
+      '--no-restore-session-state',
       '--disable-session-crashed-bubble',
       '--disable-infobars',
       '--hide-crash-restore-bubble',
@@ -94,7 +96,12 @@ export const test = base.extend<TeFixtures>({
   },
 
   page: async ({ context }, use) => {
-    const page = await context.newPage();
+    // With an existing Chrome profile, Chrome opens at least one page on its
+    // own (new-tab or a restored tab). Reuse that page instead of creating
+    // another one — a second about:blank on top of an already-busy browser
+    // can fail to receive CDP navigate commands while session state settles.
+    const existing = context.pages();
+    const page = existing.length > 0 ? existing[0] : await context.newPage();
     await use(page);
   },
 });
