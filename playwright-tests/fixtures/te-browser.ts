@@ -50,6 +50,13 @@ export const test = base.extend<TeFixtures>({
       // Mode A: real Chrome profile - extension is installed and authenticated.
       // Do NOT pass --disable-extensions-except; it would suppress the TE extension.
       userDataDir = existingProfile;
+      // If the TE extension lives in a non-default profile (Profile 2, Profile 3,
+      // etc.) tell Chrome which subdirectory to open, otherwise it defaults to
+      // the "Default" profile and the extension will not be present.
+      const profileDir = process.env.CHROME_PROFILE_DIRECTORY?.trim();
+      if (profileDir) {
+        args.push(`--profile-directory=${profileDir}`);
+      }
     } else if (extensionPath) {
       // Mode B: sideload extension into a fresh temp profile.
       userDataDir  = path.join(os.tmpdir(), `pw-te-${testInfo.workerIndex}-${Date.now()}`);
