@@ -116,19 +116,22 @@ foreach ($f in $SessionFiles) {
 # -- Launch Chrome externally with remote-debugging-port ----------------------
 # Running Chrome this way means Playwright's --enable-automation flag is never
 # added, so the ThousandEyes Endpoint Agent extension reports metrics normally.
-$ChromeArgs = @(
-    "--remote-debugging-port=$DebugPort",
-    "--user-data-dir=$UserDataDir",
-    "--profile-directory=$ProfileDir",
-    "--no-restore-session-state",
-    "--disable-session-crashed-bubble",
-    "--hide-crash-restore-bubble",
-    "--no-first-run",
-    "about:blank"
-)
+#
+# Pass as a single string so PowerShell 5.1 does not re-quote array elements.
+# Paths that contain spaces must be quoted inside the value (after =) so Chrome
+# receives them as a single argument; unquoted spaces would be split by the
+# CRT argument parser and the trailing word would be treated as a URL to open.
+$ChromeArgStr = "--remote-debugging-port=$DebugPort " +
+                "--user-data-dir=`"$UserDataDir`" " +
+                "--profile-directory=`"$ProfileDir`" " +
+                "--no-restore-session-state " +
+                "--disable-session-crashed-bubble " +
+                "--hide-crash-restore-bubble " +
+                "--no-first-run " +
+                "about:blank"
 
 Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
-$ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgs -PassThru
+$ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgStr -PassThru
 
 # -- Wait for Chrome CDP to become available -----------------------------------
 $CdpUrl  = "http://localhost:$DebugPort/json"
