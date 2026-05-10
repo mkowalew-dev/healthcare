@@ -138,13 +138,23 @@ $ChromeArgStr = "--remote-debugging-port=$DebugPort " +
                 "--user-data-dir=`"$UserDataDir`" " +
                 "--profile-directory=`"$ProfileDir`" " +
                 "--no-restore-session-state " +
+                "--no-default-browser-check " +
                 "--disable-session-crashed-bubble " +
                 "--hide-crash-restore-bubble " +
                 "--no-first-run " +
                 "about:blank"
 
+Write-Log "Chrome args    : $ChromeArgStr"
 Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
 $ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgStr -PassThru
+
+# Verify Chrome did not crash immediately
+Start-Sleep -Seconds 3
+if ($ChromeProcess.HasExited) {
+    Write-Log "ERROR: Chrome exited immediately (exit code: $($ChromeProcess.ExitCode))"
+    exit 1
+}
+Write-Log "Chrome PID     : $($ChromeProcess.Id) (running)"
 
 # -- Wait for Chrome CDP to become available -----------------------------------
 $CdpUrl  = "http://127.0.0.1:$DebugPort/json"
@@ -153,6 +163,10 @@ $Elapsed = 0
 $CdpReady = $false
 
 while ($Elapsed -lt $MaxWait) {
+    if ($ChromeProcess.HasExited) {
+        Write-Log "ERROR: Chrome exited while waiting for CDP (exit code: $($ChromeProcess.ExitCode))"
+        exit 1
+    }
     try {
         Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
         $CdpReady = $true
@@ -165,6 +179,13 @@ while ($Elapsed -lt $MaxWait) {
 
 if (-not $CdpReady) {
     Write-Log "ERROR: Chrome CDP not ready after $MaxWait seconds"
+    Write-Log "Chrome still running: $(-not $ChromeProcess.HasExited)"
+    $portInfo = netstat -an 2>$null | Select-String ":$DebugPort "
+    if ($portInfo) {
+        Write-Log "Port $DebugPort status: $portInfo"
+    } else {
+        Write-Log "Port $DebugPort is not bound - Chrome started but never opened debug port"
+    }
     Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
     exit 1
 }
