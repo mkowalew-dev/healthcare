@@ -6,7 +6,9 @@ loadEnv({ path: path.resolve(__dirname, '.env') });
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 60_000,
+  // Chrome with TE extension takes ~15-20s to initialise; 120s gives the test
+  // body 90s of headroom after startup.
+  timeout: 120_000,
   expect: { timeout: 15_000 },
 
   // Serial execution — one Chrome instance with the TE extension at a time

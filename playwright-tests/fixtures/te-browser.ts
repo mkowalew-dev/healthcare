@@ -56,7 +56,13 @@ export const test = base.extend<TeFixtures>({
 
     // Wait for TE extension to flush any pending metrics before closing Chrome.
     await new Promise(resolve => setTimeout(resolve, 5000));
-    await context.close();
+    // Race context.close() against a timeout — if Chrome is stuck (e.g. crash
+    // recovery dialog) the close hangs and exceeds Playwright's worker teardown
+    // budget, failing every subsequent run.
+    await Promise.race([
+      context.close(),
+      new Promise(resolve => setTimeout(resolve, 15_000)),
+    ]);
   },
 
   page: async ({ context }: { context: BrowserContext }, use: (page: Page) => Promise<void>) => {
