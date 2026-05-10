@@ -48,14 +48,15 @@ export const test = base.extend<TeFixtures>({
   },
 
   page: async ({ context }, use) => {
-    // Snapshot pre-existing tabs (session-restored) before opening the test page.
-    const preExisting = context.pages();
-    const page = await context.newPage();
-    // Close restored tabs now that the test page is open so Chrome always has
-    // at least one tab and does not attempt to quit.
-    await Promise.all(preExisting.map((p: Page) => p.close().catch(() => {})));
+    // Reuse the tab Chrome launched with about:blank rather than opening a new
+    // one.  Creating and then closing tabs risks Chrome reaching zero open tabs
+    // and auto-quitting, which breaks every test after the first.
+    const existing = context.pages();
+    const page = existing.length > 0 ? existing[0] : await context.newPage();
     await use(page);
-    await page.close();
+    // Reset to about:blank instead of closing — keeps Chrome alive for the
+    // next test's CDP connection.
+    await page.goto('about:blank').catch(() => {});
   },
 });
 
