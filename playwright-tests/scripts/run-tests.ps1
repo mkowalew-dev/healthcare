@@ -3,10 +3,11 @@
     Run the CareConnect / MyChart / PACS Playwright login tests.
 
 .DESCRIPTION
-    Loads the .env file from the playwright-tests directory, launches Chrome
-    externally with a remote-debugging port (so the ThousandEyes extension runs
-    without automation flags), connects Playwright via CDP, executes all tests,
-    and writes a timestamped log to .\logs\.
+    Loads the .env file from the playwright-tests directory, kills any running
+    Chrome to release the profile singleton lock, patches the profile's Preferences
+    file to clear any crash-recovery state, then executes all tests via
+    npx playwright test.  Playwright launches Chrome itself using
+    launchPersistentContext so no external debug port is required.
 
 .PARAMETER TestFilter
     Optional Playwright --grep pattern to run a subset of tests.
@@ -67,7 +68,7 @@ if (Test-Path $EnvFile) {
     Write-Log "WARNING: .env not found - using defaults / system environment variables"
 }
 
-# -- Resolve Chrome config from environment ------------------------------------
+# -- Resolve Chrome profile from environment -----------------------------------
 $UserDataDir = $env:CHROME_USER_DATA_DIR
 if (-not $UserDataDir) {
     Write-Log "ERROR: CHROME_USER_DATA_DIR is not set in .env"
@@ -75,148 +76,49 @@ if (-not $UserDataDir) {
 }
 
 $ProfileDir = if ($env:CHROME_PROFILE_DIR) { $env:CHROME_PROFILE_DIR } else { "Profile 1" }
-$DebugPort  = if ($env:CHROME_DEBUG_PORT)  { $env:CHROME_DEBUG_PORT  } else { "9222" }
 
 Write-Log "Chrome profile : $UserDataDir\$ProfileDir"
-Write-Log "CDP port       : $DebugPort"
 
-# -- Find Chrome executable ----------------------------------------------------
-$ChromeCandidates = @(
-    "C:\Program Files\Google\Chrome\Application\chrome.exe",
-    "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-)
-$ChromeExe = $ChromeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $ChromeExe) {
-    Write-Log "ERROR: Chrome executable not found in standard locations"
-    exit 1
-}
-Write-Log "Chrome         : $ChromeExe"
-
-# -- Check for enterprise policy blocking remote debugging ---------------------
-$chromePolicyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome"
-if (Test-Path $chromePolicyPath) {
-    $rdAllowed = Get-ItemProperty $chromePolicyPath -Name RemoteDebuggingAllowed -ErrorAction SilentlyContinue
-    if ($null -ne $rdAllowed -and $rdAllowed.RemoteDebuggingAllowed -eq 0) {
-        Write-Log "ERROR: Enterprise policy has disabled Chrome remote debugging (RemoteDebuggingAllowed=0)"
-        exit 1
-    }
+# -- Kill any existing Chrome to release the profile singleton lock ------------
+# Use taskkill /F so processes owned by other users/sessions are also
+# terminated; Get-Process only sees the current user's processes.
+$tasklistOut = & tasklist /FI "IMAGENAME eq chrome.exe" /NH 2>$null
+$chromeLines = $tasklistOut | Where-Object { $_ -match 'chrome\.exe' }
+if ($chromeLines) {
+    Write-Log "Killing existing Chrome processes (all users)..."
+    $chromeLines | ForEach-Object { Write-Log "  $_" }
+    & taskkill /F /IM chrome.exe /T 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+    Write-Log "Chrome killed"
 }
 
-$CdpUrl      = "http://127.0.0.1:$DebugPort/json"
-$CdpReady    = $false
-$ChromeProcess = $null
-
-# -- Reuse Chrome if it is already running with the debug port -----------------
-# Skipping kill+restart avoids triggering Chrome's crash-recovery scan on the
-# next launch.  The page fixture resets each tab to about:blank between tests,
-# so reusing an existing Chrome instance is safe.
-try {
-    Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
-    $CdpReady = $true
-    $ChromeProcess = Get-Process -Name chrome -ErrorAction SilentlyContinue | Select-Object -First 1
-    Write-Log "Chrome already running on port $DebugPort (PID $($ChromeProcess.Id)) - reusing"
-} catch {}
-
-if (-not $CdpReady) {
-    # -- Kill any existing Chrome so the profile singleton lock is released ----
-    # Use taskkill /F so processes owned by other users/sessions are also
-    # terminated; Get-Process only sees the current user's processes and would
-    # miss a background TE-agent Chrome holding the singleton for Profile 1.
-    $tasklistBefore = & tasklist /FI "IMAGENAME eq chrome.exe" /NH 2>$null
-    $chromeLines = $tasklistBefore | Where-Object { $_ -match 'chrome\.exe' }
-    if ($chromeLines) {
-        Write-Log "Chrome processes (all users) before kill:"
-        $chromeLines | ForEach-Object { Write-Log "  $_" }
-        & taskkill /F /IM chrome.exe /T 2>$null | Out-Null
-        Start-Sleep -Seconds 3
-        Write-Log "Chrome killed"
-    }
-
-    # Delete singleton lock files left behind by a force-kill so Chrome does
-    # not hang waiting for a response from the dead previous instance.
-    $SingletonFiles = @("SingletonLock", "SingletonSocket", "SingletonCookie")
-    foreach ($f in $SingletonFiles) {
-        $path = Join-Path $UserDataDir $f
-        if (Test-Path $path) {
-            Remove-Item $path -Force -ErrorAction SilentlyContinue
-            Write-Log "Deleted singleton file: $f"
-        }
-    }
-
-    # Clear session files so Chrome does not restore previous tabs on launch.
-    $SessionFiles = @("Current Session", "Current Tabs", "Last Session", "Last Tabs")
-    foreach ($f in $SessionFiles) {
-        $path = Join-Path (Join-Path $UserDataDir $ProfileDir) $f
-        if (Test-Path $path) {
-            Remove-Item $path -Force
-            Write-Log "Cleared session file: $f"
-        }
-    }
-
-    # -- Launch Chrome externally with remote-debugging-port ------------------
-    # Use Start-Process (UseShellExecute=true) so Chrome gets the proper Window
-    # Station / Desktop context it needs to initialise its GUI and message pump.
-    # Without ShellExecute, Chrome starts but never binds the debug port.
-    # Flags verified against Chrome 148:
-    #   --remote-allow-origins   required since Chrome 128 for CDP connections
-    #   --no-restore-session-state / --disable-session-crashed-bubble /
-    #   --hide-crash-restore-bubble  all removed in Chrome 115-117; omitted
-    $ChromeArgs = "--remote-debugging-port=$DebugPort " +
-                  "--remote-allow-origins=http://127.0.0.1:$DebugPort " +
-                  "--user-data-dir=`"$UserDataDir`" " +
-                  "--profile-directory=`"$ProfileDir`" " +
-                  "--no-default-browser-check " +
-                  "--no-first-run " +
-                  "about:blank"
-
-    Write-Log "Chrome args    : $ChromeArgs"
-    Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
-    $ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgs -PassThru
-
-    # Log all Chrome processes 3 seconds after launch so we can spot relay mode:
-    # if more than one chrome.exe appears, the new process found an existing
-    # singleton and is relaying commands to it instead of binding the debug port.
-    Start-Sleep -Seconds 3
-    $tasklistAfter = & tasklist /FI "IMAGENAME eq chrome.exe" /NH /V 2>$null
-    $tasklistAfter | Where-Object { $_ -match 'chrome\.exe' } | ForEach-Object { Write-Log "Chrome proc: $_" }
-
-    # -- Wait for Chrome CDP to become available (up to ~5 min) ---------------
-    # Chrome 148 with extensions may bind the debug port later in the startup
-    # sequence than older versions.  Log netstat every 30s so we can see if/
-    # when the port appears.
-    $MaxWait = 120
-    $Elapsed = 0
-
-    while ($Elapsed -lt $MaxWait) {
-        if ($ChromeProcess.HasExited) {
-            Write-Log "ERROR: Chrome exited while waiting for CDP (exit code: $($ChromeProcess.ExitCode))"
-            exit 1
-        }
-        if ($Elapsed -gt 0 -and $Elapsed % 30 -eq 0) {
-            $portNow = netstat -an 2>$null | Select-String ":$DebugPort "
-            Write-Log "Port $DebugPort at ${Elapsed}s: $(if ($portNow) { "BOUND - $portNow" } else { 'not yet bound' })"
-        }
-        try {
-            Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
-            $CdpReady = $true
-            break
-        } catch {
-            Start-Sleep -Seconds 1
-            $Elapsed++
-        }
-    }
-
-    if (-not $CdpReady) {
-        Write-Log "ERROR: Chrome CDP not ready after $MaxWait seconds"
-        $portInfo = netstat -an 2>$null | Select-String ":$DebugPort "
-        Write-Log $(if ($portInfo) { "Port $DebugPort status: $portInfo" } else { "Port $DebugPort is not bound" })
-        Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
-        exit 1
+# -- Delete singleton lock files so Chrome starts cleanly ----------------------
+$SingletonFiles = @("SingletonLock", "SingletonSocket", "SingletonCookie")
+foreach ($f in $SingletonFiles) {
+    $path = Join-Path $UserDataDir $f
+    if (Test-Path $path) {
+        Remove-Item $path -Force -ErrorAction SilentlyContinue
+        Write-Log "Deleted singleton: $f"
     }
 }
 
-Write-Log "Chrome CDP ready (PID $($ChromeProcess.Id))"
+# -- Patch Preferences to clear crash-recovery state --------------------------
+# After a force-kill Chrome sets exit_type to "Crashed", causing the "Restore
+# pages?" banner on next launch which can delay extension initialisation.
+$PrefsFile = Join-Path (Join-Path $UserDataDir $ProfileDir) "Preferences"
+if (Test-Path $PrefsFile) {
+    try {
+        $prefs = Get-Content $PrefsFile -Raw | ConvertFrom-Json
+        if ($null -ne $prefs.profile) {
+            $prefs.profile.exit_type     = "Normal"
+            $prefs.profile.exited_cleanly = $true
+        }
+        $prefs | ConvertTo-Json -Depth 100 | Set-Content $PrefsFile -Encoding UTF8
+        Write-Log "Cleared crash state in Preferences"
+    } catch {
+        Write-Log "WARNING: Could not patch Preferences file: $_"
+    }
+}
 
 # -- Change to the playwright-tests directory ----------------------------------
 Set-Location $RootDir
@@ -227,16 +129,8 @@ if (-not (Test-Path (Join-Path $RootDir "node_modules"))) {
     npm install 2>&1 | Tee-Object -Append -FilePath $LogFile
     if ($LASTEXITCODE -ne 0) {
         Write-Log "ERROR: npm install failed (exit $LASTEXITCODE)"
-        Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
         exit $LASTEXITCODE
     }
-}
-
-# -- Install Playwright browser (Chrome) if missing ---------------------------
-$PlaywrightBrowsers = Join-Path $env:LOCALAPPDATA "ms-playwright"
-if (-not (Test-Path $PlaywrightBrowsers)) {
-    Write-Log "Playwright browsers not found - running install..."
-    npx playwright install chrome 2>&1 | Tee-Object -Append -FilePath $LogFile
 }
 
 # -- Build Playwright command --------------------------------------------------
@@ -260,25 +154,6 @@ if ($ExitCode -eq 0) {
     Write-Log "RESULT: All tests PASSED"
 } else {
     Write-Log "RESULT: One or more tests FAILED (exit $ExitCode)"
-}
-
-# -- Close Chrome gracefully so the profile is saved cleanly ------------------
-# CloseMainWindow() sends WM_CLOSE; Chrome shuts down normally and writes its
-# profile state.  A force-kill skips this and leaves the profile in a crashed
-# state, causing Chrome to run a lengthy recovery scan on the next launch
-# (which is why CDP wasn't binding within the timeout on subsequent runs).
-Write-Log "Waiting 5s for TE extension to flush metrics..."
-Start-Sleep -Seconds 5
-
-if ($null -ne $ChromeProcess -and -not $ChromeProcess.HasExited) {
-    Write-Log "Closing Chrome (PID $($ChromeProcess.Id)) gracefully..."
-    $ChromeProcess.CloseMainWindow() | Out-Null
-    if (-not $ChromeProcess.WaitForExit(15000)) {
-        Write-Log "Graceful close timed out - forcing"
-        $ChromeProcess.Kill()
-    } else {
-        Write-Log "Chrome closed cleanly"
-    }
 }
 
 # -- Prune logs older than 30 days ---------------------------------------------

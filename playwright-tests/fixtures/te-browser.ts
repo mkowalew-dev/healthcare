@@ -12,24 +12,37 @@ type TeFixtures = {
 };
 
 /**
- * Connects to a Chrome instance that was started externally by run-tests.ps1
- * via --remote-debugging-port.  Because Playwright does not launch the browser
- * itself, none of Playwright's automation flags (--enable-automation, etc.) are
- * present.  Chrome runs exactly like a normal user browser, so the ThousandEyes
- * Endpoint Agent extension captures and reports metrics as expected.
+ * Launches Chrome via launchPersistentContext using the TE-authenticated user
+ * profile.  Two Playwright automation signals are suppressed so the ThousandEyes
+ * Endpoint Agent extension reports metrics as it would for a real user session:
+ *   - ignoreDefaultArgs removes --enable-automation (the "controlled by automation"
+ *     infobanner and Chrome's internal automation mode)
+ *   - --disable-blink-features=AutomationControlled prevents navigator.webdriver=true
  */
 export const test = base.extend<TeFixtures>({
   context: async ({}, use) => {
-    const port   = process.env.CHROME_DEBUG_PORT || '9222';
-    const cdpUrl = `http://127.0.0.1:${port}`;
+    const userDataDir = process.env.CHROME_USER_DATA_DIR ?? '';
+    const profileDir  = process.env.CHROME_PROFILE_DIR  ?? 'Profile 1';
 
-    const browser = await chromium.connectOverCDP(cdpUrl, { timeout: 15_000 });
-    const context = browser.contexts()[0];
+    if (!userDataDir) {
+      throw new Error('CHROME_USER_DATA_DIR is not set');
+    }
 
-    // Log whether the TE Endpoint Agent service worker is already registered.
-    // With connectOverCDP, Chrome is already running so the MV3 service worker
-    // should be present — if this logs "not detected", the extension may not be
-    // loaded in the profile Chrome was started with.
+    const context = await chromium.launchPersistentContext(userDataDir, {
+      channel: 'chrome',
+      args: [
+        `--profile-directory=${profileDir}`,
+        '--disable-blink-features=AutomationControlled',
+        '--no-default-browser-check',
+        '--no-first-run',
+      ],
+      ignoreDefaultArgs: ['--enable-automation'],
+      ignoreHTTPSErrors: true,
+    });
+
+    // Give extension service workers a moment to register after launch.
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     const workers = context.serviceWorkers();
     const teWorker = workers.find((w: { url(): string }) => w.url().includes('ddnennmeinlkhkmajmmfaojcnpddnpgb'));
     console.log(
@@ -40,22 +53,17 @@ export const test = base.extend<TeFixtures>({
 
     await use(context);
 
-    // Disconnect Playwright but leave Chrome running - run-tests.ps1 kills it
-    // after all tests finish so the extension can flush any pending metrics.
-    // browser.close() on a connectOverCDP browser closes the CDP session only;
-    // it does not terminate the Chrome process.
-    await browser.close();
+    // Wait for TE extension to flush any pending metrics before closing Chrome.
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    await context.close();
   },
 
-  page: async ({ context }, use) => {
-    // Reuse the tab Chrome launched with about:blank rather than opening a new
-    // one.  Creating and then closing tabs risks Chrome reaching zero open tabs
-    // and auto-quitting, which breaks every test after the first.
+  page: async ({ context }: { context: BrowserContext }, use: (page: Page) => Promise<void>) => {
     const existing = context.pages();
     const page = existing.length > 0 ? existing[0] : await context.newPage();
     await use(page);
-    // Reset to about:blank instead of closing — keeps Chrome alive for the
-    // next test's CDP connection.
+    // Navigate to about:blank between tests rather than closing the tab —
+    // closing Chrome's last tab causes it to quit, breaking subsequent tests.
     await page.goto('about:blank').catch(() => {});
   },
 });
