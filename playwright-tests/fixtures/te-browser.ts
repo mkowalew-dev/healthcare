@@ -26,6 +26,10 @@ export const test = base.extend<TeFixtures>({
     const browser = await chromium.connectOverCDP(cdpUrl, { timeout: 15_000 });
     const context = browser.contexts()[0];
 
+    // Close any tabs Chrome restored from a previous (crashed) session so tests
+    // always start with a clean slate.  Service workers are unaffected.
+    await Promise.all(context.pages().map(p => p.close().catch(() => {})));
+
     // Log whether the TE Endpoint Agent service worker is already registered.
     // With connectOverCDP, Chrome is already running so the MV3 service worker
     // should be present — if this logs "not detected", the extension may not be
