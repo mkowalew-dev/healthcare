@@ -106,7 +106,7 @@ if ($existingChrome) {
 # files also overrides the "Continue where you left off" startup preference.
 $SessionFiles = @("Current Session", "Current Tabs", "Last Session", "Last Tabs")
 foreach ($f in $SessionFiles) {
-    $path = Join-Path $UserDataDir $ProfileDir $f
+    $path = Join-Path (Join-Path $UserDataDir $ProfileDir) $f
     if (Test-Path $path) {
         Remove-Item $path -Force
         Write-Log "Cleared session file: $f"
