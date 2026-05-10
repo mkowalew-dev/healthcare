@@ -4,6 +4,7 @@ import {
   expect,
   type BrowserContext,
   type Page,
+  type Worker,
 } from '@playwright/test';
 
 type TeFixtures = {
@@ -11,12 +12,16 @@ type TeFixtures = {
   page: Page;
 };
 
+const TE_EXTENSION_ID = 'ddnennmeinlkhkmajmmfaojcnpddnpgb';
+
 /**
  * Launches Chrome via launchPersistentContext using the TE-authenticated user
- * profile.  Two Playwright automation signals are suppressed so the ThousandEyes
- * Endpoint Agent extension reports metrics as it would for a real user session:
- *   - ignoreDefaultArgs removes --enable-automation (the "controlled by automation"
- *     infobanner and Chrome's internal automation mode)
+ * profile.  Several Playwright defaults are suppressed so the ThousandEyes
+ * Endpoint Agent extension loads and reports metrics as it would for a real
+ * user session:
+ *   - ignoreDefaultArgs removes --enable-automation (automation infobanner),
+ *     --disable-extensions (blocks all user extensions), and --headless
+ *     (MV3 service workers do not activate in old headless mode)
  *   - --disable-blink-features=AutomationControlled prevents navigator.webdriver=true
  */
 export const test = base.extend<TeFixtures>({
@@ -30,6 +35,7 @@ export const test = base.extend<TeFixtures>({
 
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chrome',
+      headless: false,
       timeout: 60_000,
       args: [
         `--profile-directory=${profileDir}`,
@@ -37,15 +43,23 @@ export const test = base.extend<TeFixtures>({
         '--no-default-browser-check',
         '--no-first-run',
       ],
-      ignoreDefaultArgs: ['--enable-automation', '--disable-extensions'],
+      ignoreDefaultArgs: ['--enable-automation', '--disable-extensions', '--headless'],
       ignoreHTTPSErrors: true,
     });
 
-    // Give extension service workers a moment to register after launch.
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    const workers = context.serviceWorkers();
-    const teWorker = workers.find((w: { url(): string }) => w.url().includes('ddnennmeinlkhkmajmmfaojcnpddnpgb'));
+    // Wait for the TE extension service worker to register.  Check immediately
+    // in case it's already up, otherwise listen for the event up to 10s.
+    let teWorker = context.serviceWorkers().find((w: Worker) => w.url().includes(TE_EXTENSION_ID)) ?? null;
+    if (!teWorker) {
+      try {
+        teWorker = await context.waitForEvent('serviceworker', {
+          predicate: (w: Worker) => w.url().includes(TE_EXTENSION_ID),
+          timeout: 10_000,
+        });
+      } catch {
+        teWorker = null;
+      }
+    }
     console.log(
       teWorker
         ? `[TE] Extension service worker detected: ${teWorker.url()}`
@@ -56,9 +70,8 @@ export const test = base.extend<TeFixtures>({
 
     // Wait for TE extension to flush any pending metrics before closing Chrome.
     await new Promise(resolve => setTimeout(resolve, 5000));
-    // Race context.close() against a timeout — if Chrome is stuck (e.g. crash
-    // recovery dialog) the close hangs and exceeds Playwright's worker teardown
-    // budget, failing every subsequent run.
+    // Race context.close() against a timeout — if Chrome is stuck the close
+    // hangs and exceeds Playwright's worker teardown budget.
     await Promise.race([
       context.close(),
       new Promise(resolve => setTimeout(resolve, 15_000)),
