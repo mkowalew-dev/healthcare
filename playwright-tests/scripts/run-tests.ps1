@@ -98,7 +98,20 @@ $existingChrome = Get-Process -Name chrome -ErrorAction SilentlyContinue
 if ($existingChrome) {
     Write-Log "Stopping $($existingChrome.Count) existing Chrome process(es)..."
     $existingChrome | Stop-Process -Force
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 3
+}
+
+# -- Delete Chrome singleton lock files so the new process starts cleanly ------
+# Stop-Process -Force exits the process immediately but may leave the lock
+# files behind; Chrome finding these on startup can cause it to hang waiting
+# for a response from the (now-dead) previous instance.
+$SingletonFiles = @("SingletonLock", "SingletonSocket", "SingletonCookie")
+foreach ($f in $SingletonFiles) {
+    $path = Join-Path $UserDataDir $f
+    if (Test-Path $path) {
+        Remove-Item $path -Force -ErrorAction SilentlyContinue
+        Write-Log "Deleted singleton file: $f"
+    }
 }
 
 # -- Clear Chrome session files so the profile starts with no restored tabs ----
@@ -134,7 +147,7 @@ Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
 $ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgStr -PassThru
 
 # -- Wait for Chrome CDP to become available -----------------------------------
-$CdpUrl  = "http://localhost:$DebugPort/json"
+$CdpUrl  = "http://127.0.0.1:$DebugPort/json"
 $MaxWait = 30
 $Elapsed = 0
 $CdpReady = $false

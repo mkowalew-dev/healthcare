@@ -21,7 +21,7 @@ type TeFixtures = {
 export const test = base.extend<TeFixtures>({
   context: async ({}, use) => {
     const port   = process.env.CHROME_DEBUG_PORT || '9222';
-    const cdpUrl = `http://localhost:${port}`;
+    const cdpUrl = `http://127.0.0.1:${port}`;
 
     const browser = await chromium.connectOverCDP(cdpUrl, { timeout: 15_000 });
     const context = browser.contexts()[0];
