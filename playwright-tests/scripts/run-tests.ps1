@@ -93,39 +93,6 @@ if (-not $ChromeExe) {
 }
 Write-Log "Chrome         : $ChromeExe"
 
-# -- Kill any existing Chrome so the profile singleton lock is released --------
-$existingChrome = Get-Process -Name chrome -ErrorAction SilentlyContinue
-if ($existingChrome) {
-    Write-Log "Stopping $($existingChrome.Count) existing Chrome process(es)..."
-    $existingChrome | Stop-Process -Force
-    Start-Sleep -Seconds 3
-}
-
-# -- Delete Chrome singleton lock files so the new process starts cleanly ------
-# Stop-Process -Force exits the process immediately but may leave the lock
-# files behind; Chrome finding these on startup can cause it to hang waiting
-# for a response from the (now-dead) previous instance.
-$SingletonFiles = @("SingletonLock", "SingletonSocket", "SingletonCookie")
-foreach ($f in $SingletonFiles) {
-    $path = Join-Path $UserDataDir $f
-    if (Test-Path $path) {
-        Remove-Item $path -Force -ErrorAction SilentlyContinue
-        Write-Log "Deleted singleton file: $f"
-    }
-}
-
-# -- Clear Chrome session files so the profile starts with no restored tabs ----
-# --no-restore-session-state only suppresses crash recovery; deleting these
-# files also overrides the "Continue where you left off" startup preference.
-$SessionFiles = @("Current Session", "Current Tabs", "Last Session", "Last Tabs")
-foreach ($f in $SessionFiles) {
-    $path = Join-Path (Join-Path $UserDataDir $ProfileDir) $f
-    if (Test-Path $path) {
-        Remove-Item $path -Force
-        Write-Log "Cleared session file: $f"
-    }
-}
-
 # -- Check for enterprise policy blocking remote debugging ---------------------
 $chromePolicyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome"
 if (Test-Path $chromePolicyPath) {
@@ -136,83 +103,102 @@ if (Test-Path $chromePolicyPath) {
     }
 }
 
-# -- Launch Chrome externally with remote-debugging-port ----------------------
-# Running Chrome this way means Playwright's --enable-automation flag is never
-# added, so the ThousandEyes Endpoint Agent extension reports metrics normally.
-#
-# Use ProcessStartInfo directly (UseShellExecute=false) instead of
-# Start-Process -ArgumentList so Windows does not pass the argument string
-# through ShellExecuteEx, which wraps strings containing inner quotes in an
-# outer quoted block and sends the entire line as one argument to Chrome.
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName        = $ChromeExe
-$psi.UseShellExecute = $false
-$psi.Arguments       = "--remote-debugging-port=$DebugPort " +
-                       "--user-data-dir=`"$UserDataDir`" " +
-                       "--profile-directory=`"$ProfileDir`" " +
-                       "--no-restore-session-state " +
-                       "--no-default-browser-check " +
-                       "--disable-session-crashed-bubble " +
-                       "--hide-crash-restore-bubble " +
-                       "--no-first-run " +
-                       "about:blank"
+$CdpUrl      = "http://127.0.0.1:$DebugPort/json"
+$CdpReady    = $false
+$ChromeProcess = $null
 
-Write-Log "Chrome args    : $($psi.Arguments)"
-Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
-$ChromeProcess = [System.Diagnostics.Process]::Start($psi)
-
-# Log the actual command line Chrome received via WMI to verify arg passing
-Start-Sleep -Seconds 2
+# -- Reuse Chrome if it is already running with the debug port -----------------
+# Skipping kill+restart avoids triggering Chrome's crash-recovery scan on the
+# next launch.  The page fixture resets each tab to about:blank between tests,
+# so reusing an existing Chrome instance is safe.
 try {
-    $actualCmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $($ChromeProcess.Id)" -ErrorAction Stop).CommandLine
-    Write-Log "Chrome cmdline : $actualCmd"
-} catch {
-    Write-Log "Could not read Chrome cmdline via WMI"
-}
-
-# Verify Chrome did not crash immediately
-Start-Sleep -Seconds 1
-if ($ChromeProcess.HasExited) {
-    Write-Log "ERROR: Chrome exited immediately (exit code: $($ChromeProcess.ExitCode))"
-    exit 1
-}
-Write-Log "Chrome PID     : $($ChromeProcess.Id) (running)"
-
-# -- Wait for Chrome CDP to become available -----------------------------------
-$CdpUrl  = "http://127.0.0.1:$DebugPort/json"
-$MaxWait = 30
-$Elapsed = 0
-$CdpReady = $false
-
-while ($Elapsed -lt $MaxWait) {
-    if ($ChromeProcess.HasExited) {
-        Write-Log "ERROR: Chrome exited while waiting for CDP (exit code: $($ChromeProcess.ExitCode))"
-        exit 1
-    }
-    try {
-        Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
-        $CdpReady = $true
-        break
-    } catch {
-        Start-Sleep -Seconds 1
-        $Elapsed++
-    }
-}
+    Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
+    $CdpReady = $true
+    $ChromeProcess = Get-Process -Name chrome -ErrorAction SilentlyContinue | Select-Object -First 1
+    Write-Log "Chrome already running on port $DebugPort (PID $($ChromeProcess.Id)) - reusing"
+} catch {}
 
 if (-not $CdpReady) {
-    Write-Log "ERROR: Chrome CDP not ready after $MaxWait seconds"
-    Write-Log "Chrome still running: $(-not $ChromeProcess.HasExited)"
-    $portInfo = netstat -an 2>$null | Select-String ":$DebugPort "
-    if ($portInfo) {
-        Write-Log "Port $DebugPort status: $portInfo"
-    } else {
-        Write-Log "Port $DebugPort is not bound - Chrome started but never opened debug port"
+    # -- Kill any existing Chrome so the profile singleton lock is released ----
+    $existingChrome = Get-Process -Name chrome -ErrorAction SilentlyContinue
+    if ($existingChrome) {
+        Write-Log "Stopping $($existingChrome.Count) existing Chrome process(es)..."
+        $existingChrome | Stop-Process -Force
+        Start-Sleep -Seconds 3
     }
-    Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
-    exit 1
+
+    # Delete singleton lock files left behind by a force-kill so Chrome does
+    # not hang waiting for a response from the dead previous instance.
+    $SingletonFiles = @("SingletonLock", "SingletonSocket", "SingletonCookie")
+    foreach ($f in $SingletonFiles) {
+        $path = Join-Path $UserDataDir $f
+        if (Test-Path $path) {
+            Remove-Item $path -Force -ErrorAction SilentlyContinue
+            Write-Log "Deleted singleton file: $f"
+        }
+    }
+
+    # Clear session files so Chrome does not restore previous tabs on launch.
+    $SessionFiles = @("Current Session", "Current Tabs", "Last Session", "Last Tabs")
+    foreach ($f in $SessionFiles) {
+        $path = Join-Path (Join-Path $UserDataDir $ProfileDir) $f
+        if (Test-Path $path) {
+            Remove-Item $path -Force
+            Write-Log "Cleared session file: $f"
+        }
+    }
+
+    # -- Launch Chrome externally with remote-debugging-port ------------------
+    $ChromeArgs = "--remote-debugging-port=$DebugPort " +
+                  "--user-data-dir=`"$UserDataDir`" " +
+                  "--profile-directory=`"$ProfileDir`" " +
+                  "--no-restore-session-state " +
+                  "--no-default-browser-check " +
+                  "--disable-session-crashed-bubble " +
+                  "--hide-crash-restore-bubble " +
+                  "--no-first-run " +
+                  "about:blank"
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName        = $ChromeExe
+    $psi.UseShellExecute = $false
+    $psi.Arguments       = $ChromeArgs
+
+    Write-Log "Chrome args    : $ChromeArgs"
+    Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
+    $ChromeProcess = [System.Diagnostics.Process]::Start($psi)
+
+    # -- Wait for Chrome CDP to become available (up to ~3 min) ---------------
+    # Chrome may run a crash-recovery scan on startup if the previous session
+    # was force-killed; the extended timeout accommodates that.
+    $MaxWait = 60
+    $Elapsed = 0
+
+    while ($Elapsed -lt $MaxWait) {
+        if ($ChromeProcess.HasExited) {
+            Write-Log "ERROR: Chrome exited while waiting for CDP (exit code: $($ChromeProcess.ExitCode))"
+            exit 1
+        }
+        try {
+            Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
+            $CdpReady = $true
+            break
+        } catch {
+            Start-Sleep -Seconds 1
+            $Elapsed++
+        }
+    }
+
+    if (-not $CdpReady) {
+        Write-Log "ERROR: Chrome CDP not ready after $MaxWait seconds"
+        $portInfo = netstat -an 2>$null | Select-String ":$DebugPort "
+        Write-Log $(if ($portInfo) { "Port $DebugPort status: $portInfo" } else { "Port $DebugPort is not bound" })
+        Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
 }
 
-Write-Log "Chrome CDP ready (waited ${Elapsed}s)"
+Write-Log "Chrome CDP ready (PID $($ChromeProcess.Id))"
 
 # -- Change to the playwright-tests directory ----------------------------------
 Set-Location $RootDir
@@ -258,15 +244,23 @@ if ($ExitCode -eq 0) {
     Write-Log "RESULT: One or more tests FAILED (exit $ExitCode)"
 }
 
-# -- Stop Chrome - let the extension flush any pending metrics first -----------
-# A short grace period gives the TE extension time to report the final page view
-# before the process is killed.
+# -- Close Chrome gracefully so the profile is saved cleanly ------------------
+# CloseMainWindow() sends WM_CLOSE; Chrome shuts down normally and writes its
+# profile state.  A force-kill skips this and leaves the profile in a crashed
+# state, causing Chrome to run a lengthy recovery scan on the next launch
+# (which is why CDP wasn't binding within the timeout on subsequent runs).
 Write-Log "Waiting 5s for TE extension to flush metrics..."
 Start-Sleep -Seconds 5
 
-if (-not $ChromeProcess.HasExited) {
-    Write-Log "Stopping Chrome (PID $($ChromeProcess.Id))..."
-    Stop-Process -Id $ChromeProcess.Id -Force -ErrorAction SilentlyContinue
+if ($null -ne $ChromeProcess -and -not $ChromeProcess.HasExited) {
+    Write-Log "Closing Chrome (PID $($ChromeProcess.Id)) gracefully..."
+    $ChromeProcess.CloseMainWindow() | Out-Null
+    if (-not $ChromeProcess.WaitForExit(15000)) {
+        Write-Log "Graceful close timed out - forcing"
+        $ChromeProcess.Kill()
+    } else {
+        Write-Log "Chrome closed cleanly"
+    }
 }
 
 # -- Prune logs older than 30 days ---------------------------------------------
