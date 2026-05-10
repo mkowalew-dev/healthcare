@@ -120,11 +120,17 @@ try {
 
 if (-not $CdpReady) {
     # -- Kill any existing Chrome so the profile singleton lock is released ----
-    $existingChrome = Get-Process -Name chrome -ErrorAction SilentlyContinue
-    if ($existingChrome) {
-        Write-Log "Stopping $($existingChrome.Count) existing Chrome process(es)..."
-        $existingChrome | Stop-Process -Force
+    # Use taskkill /F so processes owned by other users/sessions are also
+    # terminated; Get-Process only sees the current user's processes and would
+    # miss a background TE-agent Chrome holding the singleton for Profile 1.
+    $tasklistBefore = & tasklist /FI "IMAGENAME eq chrome.exe" /NH 2>$null
+    $chromeLines = $tasklistBefore | Where-Object { $_ -match 'chrome\.exe' }
+    if ($chromeLines) {
+        Write-Log "Chrome processes (all users) before kill:"
+        $chromeLines | ForEach-Object { Write-Log "  $_" }
+        & taskkill /F /IM chrome.exe /T 2>$null | Out-Null
         Start-Sleep -Seconds 3
+        Write-Log "Chrome killed"
     }
 
     # Delete singleton lock files left behind by a force-kill so Chrome does
@@ -152,19 +158,28 @@ if (-not $CdpReady) {
     # Use Start-Process (UseShellExecute=true) so Chrome gets the proper Window
     # Station / Desktop context it needs to initialise its GUI and message pump.
     # Without ShellExecute, Chrome starts but never binds the debug port.
+    # Flags verified against Chrome 148:
+    #   --remote-allow-origins   required since Chrome 128 for CDP connections
+    #   --no-restore-session-state / --disable-session-crashed-bubble /
+    #   --hide-crash-restore-bubble  all removed in Chrome 115-117; omitted
     $ChromeArgs = "--remote-debugging-port=$DebugPort " +
+                  "--remote-allow-origins=http://127.0.0.1:$DebugPort " +
                   "--user-data-dir=`"$UserDataDir`" " +
                   "--profile-directory=`"$ProfileDir`" " +
-                  "--no-restore-session-state " +
                   "--no-default-browser-check " +
-                  "--disable-session-crashed-bubble " +
-                  "--hide-crash-restore-bubble " +
                   "--no-first-run " +
                   "about:blank"
 
     Write-Log "Chrome args    : $ChromeArgs"
     Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
     $ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgs -PassThru
+
+    # Log all Chrome processes 3 seconds after launch so we can spot relay mode:
+    # if more than one chrome.exe appears, the new process found an existing
+    # singleton and is relaying commands to it instead of binding the debug port.
+    Start-Sleep -Seconds 3
+    $tasklistAfter = & tasklist /FI "IMAGENAME eq chrome.exe" /NH /V 2>$null
+    $tasklistAfter | Where-Object { $_ -match 'chrome\.exe' } | ForEach-Object { Write-Log "Chrome proc: $_" }
 
     # -- Wait for Chrome CDP to become available (up to ~3 min) ---------------
     # Chrome may run a crash-recovery scan on startup if the previous session
