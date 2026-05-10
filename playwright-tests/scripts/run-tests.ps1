@@ -126,30 +126,52 @@ foreach ($f in $SessionFiles) {
     }
 }
 
+# -- Check for enterprise policy blocking remote debugging ---------------------
+$chromePolicyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome"
+if (Test-Path $chromePolicyPath) {
+    $rdAllowed = (Get-ItemProperty $chromePolicyPath -ErrorAction SilentlyContinue).RemoteDebuggingAllowed
+    if ($null -ne $rdAllowed -and $rdAllowed -eq 0) {
+        Write-Log "ERROR: Enterprise policy has disabled Chrome remote debugging (RemoteDebuggingAllowed=0)"
+        exit 1
+    }
+}
+
 # -- Launch Chrome externally with remote-debugging-port ----------------------
 # Running Chrome this way means Playwright's --enable-automation flag is never
 # added, so the ThousandEyes Endpoint Agent extension reports metrics normally.
 #
-# Pass as a single string so PowerShell 5.1 does not re-quote array elements.
-# Paths that contain spaces must be quoted inside the value (after =) so Chrome
-# receives them as a single argument; unquoted spaces would be split by the
-# CRT argument parser and the trailing word would be treated as a URL to open.
-$ChromeArgStr = "--remote-debugging-port=$DebugPort " +
-                "--user-data-dir=`"$UserDataDir`" " +
-                "--profile-directory=`"$ProfileDir`" " +
-                "--no-restore-session-state " +
-                "--no-default-browser-check " +
-                "--disable-session-crashed-bubble " +
-                "--hide-crash-restore-bubble " +
-                "--no-first-run " +
-                "about:blank"
+# Use ProcessStartInfo directly (UseShellExecute=false) instead of
+# Start-Process -ArgumentList so Windows does not pass the argument string
+# through ShellExecuteEx, which wraps strings containing inner quotes in an
+# outer quoted block and sends the entire line as one argument to Chrome.
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName        = $ChromeExe
+$psi.UseShellExecute = $false
+$psi.Arguments       = "--remote-debugging-port=$DebugPort " +
+                       "--user-data-dir=`"$UserDataDir`" " +
+                       "--profile-directory=`"$ProfileDir`" " +
+                       "--no-restore-session-state " +
+                       "--no-default-browser-check " +
+                       "--disable-session-crashed-bubble " +
+                       "--hide-crash-restore-bubble " +
+                       "--no-first-run " +
+                       "about:blank"
 
-Write-Log "Chrome args    : $ChromeArgStr"
+Write-Log "Chrome args    : $($psi.Arguments)"
 Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
-$ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgStr -PassThru
+$ChromeProcess = [System.Diagnostics.Process]::Start($psi)
+
+# Log the actual command line Chrome received via WMI to verify arg passing
+Start-Sleep -Seconds 2
+try {
+    $actualCmd = (Get-CimInstance Win32_Process -Filter "ProcessId = $($ChromeProcess.Id)" -ErrorAction Stop).CommandLine
+    Write-Log "Chrome cmdline : $actualCmd"
+} catch {
+    Write-Log "Could not read Chrome cmdline via WMI"
+}
 
 # Verify Chrome did not crash immediately
-Start-Sleep -Seconds 3
+Start-Sleep -Seconds 1
 if ($ChromeProcess.HasExited) {
     Write-Log "ERROR: Chrome exited immediately (exit code: $($ChromeProcess.ExitCode))"
     exit 1
