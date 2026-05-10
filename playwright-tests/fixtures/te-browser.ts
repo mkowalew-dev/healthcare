@@ -26,16 +26,12 @@ export const test = base.extend<TeFixtures>({
     const browser = await chromium.connectOverCDP(cdpUrl, { timeout: 15_000 });
     const context = browser.contexts()[0];
 
-    // Close any tabs Chrome restored from a previous (crashed) session so tests
-    // always start with a clean slate.  Service workers are unaffected.
-    await Promise.all(context.pages().map(p => p.close().catch(() => {})));
-
     // Log whether the TE Endpoint Agent service worker is already registered.
     // With connectOverCDP, Chrome is already running so the MV3 service worker
     // should be present — if this logs "not detected", the extension may not be
     // loaded in the profile Chrome was started with.
     const workers = context.serviceWorkers();
-    const teWorker = workers.find(w => w.url().includes('ddnennmeinlkhkmajmmfaojcnpddnpgb'));
+    const teWorker = workers.find((w: { url(): string }) => w.url().includes('ddnennmeinlkhkmajmmfaojcnpddnpgb'));
     console.log(
       teWorker
         ? `[TE] Extension service worker detected: ${teWorker.url()}`
@@ -46,11 +42,18 @@ export const test = base.extend<TeFixtures>({
 
     // Disconnect Playwright but leave Chrome running - run-tests.ps1 kills it
     // after all tests finish so the extension can flush any pending metrics.
-    await browser.disconnect();
+    // browser.close() on a connectOverCDP browser closes the CDP session only;
+    // it does not terminate the Chrome process.
+    await browser.close();
   },
 
   page: async ({ context }, use) => {
+    // Snapshot pre-existing tabs (session-restored) before opening the test page.
+    const preExisting = context.pages();
     const page = await context.newPage();
+    // Close restored tabs now that the test page is open so Chrome always has
+    // at least one tab and does not attempt to quit.
+    await Promise.all(preExisting.map((p: Page) => p.close().catch(() => {})));
     await use(page);
     await page.close();
   },
