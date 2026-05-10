@@ -102,16 +102,31 @@ foreach ($f in $SingletonFiles) {
     }
 }
 
+# -- Clear session files so Chrome does not prompt to restore previous tabs ----
+$SessionFiles = @("Current Session", "Current Tabs", "Last Session", "Last Tabs")
+foreach ($f in $SessionFiles) {
+    $path = Join-Path (Join-Path $UserDataDir $ProfileDir) $f
+    if (Test-Path $path) {
+        Remove-Item $path -Force -ErrorAction SilentlyContinue
+        Write-Log "Cleared session file: $f"
+    }
+}
+
 # -- Patch Preferences to clear crash-recovery state --------------------------
 # After a force-kill Chrome sets exit_type to "Crashed", causing the "Restore
 # pages?" banner on next launch which can delay extension initialisation.
+# exited_cleanly may not exist in older profiles so we add it if absent.
 $PrefsFile = Join-Path (Join-Path $UserDataDir $ProfileDir) "Preferences"
 if (Test-Path $PrefsFile) {
     try {
         $prefs = Get-Content $PrefsFile -Raw | ConvertFrom-Json
         if ($null -ne $prefs.profile) {
-            $prefs.profile.exit_type     = "Normal"
-            $prefs.profile.exited_cleanly = $true
+            $prefs.profile.exit_type = "Normal"
+            if ($null -eq $prefs.profile.PSObject.Properties["exited_cleanly"]) {
+                $prefs.profile | Add-Member -NotePropertyName "exited_cleanly" -NotePropertyValue $true
+            } else {
+                $prefs.profile.exited_cleanly = $true
+            }
         }
         $prefs | ConvertTo-Json -Depth 100 | Set-Content $PrefsFile -Encoding UTF8
         Write-Log "Cleared crash state in Preferences"

@@ -20,7 +20,7 @@ type TeFixtures = {
  *   - --disable-blink-features=AutomationControlled prevents navigator.webdriver=true
  */
 export const test = base.extend<TeFixtures>({
-  context: async ({}, use) => {
+  context: async ({}, use: (context: BrowserContext) => Promise<void>) => {
     const userDataDir = process.env.CHROME_USER_DATA_DIR ?? '';
     const profileDir  = process.env.CHROME_PROFILE_DIR  ?? 'Profile 1';
 
@@ -30,6 +30,7 @@ export const test = base.extend<TeFixtures>({
 
     const context = await chromium.launchPersistentContext(userDataDir, {
       channel: 'chrome',
+      timeout: 60_000,
       args: [
         `--profile-directory=${profileDir}`,
         '--disable-blink-features=AutomationControlled',
