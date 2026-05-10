@@ -129,8 +129,8 @@ foreach ($f in $SessionFiles) {
 # -- Check for enterprise policy blocking remote debugging ---------------------
 $chromePolicyPath = "HKLM:\SOFTWARE\Policies\Google\Chrome"
 if (Test-Path $chromePolicyPath) {
-    $rdAllowed = (Get-ItemProperty $chromePolicyPath -ErrorAction SilentlyContinue).RemoteDebuggingAllowed
-    if ($null -ne $rdAllowed -and $rdAllowed -eq 0) {
+    $rdAllowed = Get-ItemProperty $chromePolicyPath -Name RemoteDebuggingAllowed -ErrorAction SilentlyContinue
+    if ($null -ne $rdAllowed -and $rdAllowed.RemoteDebuggingAllowed -eq 0) {
         Write-Log "ERROR: Enterprise policy has disabled Chrome remote debugging (RemoteDebuggingAllowed=0)"
         exit 1
     }
