@@ -181,16 +181,21 @@ if (-not $CdpReady) {
     $tasklistAfter = & tasklist /FI "IMAGENAME eq chrome.exe" /NH /V 2>$null
     $tasklistAfter | Where-Object { $_ -match 'chrome\.exe' } | ForEach-Object { Write-Log "Chrome proc: $_" }
 
-    # -- Wait for Chrome CDP to become available (up to ~3 min) ---------------
-    # Chrome may run a crash-recovery scan on startup if the previous session
-    # was force-killed; the extended timeout accommodates that.
-    $MaxWait = 60
+    # -- Wait for Chrome CDP to become available (up to ~5 min) ---------------
+    # Chrome 148 with extensions may bind the debug port later in the startup
+    # sequence than older versions.  Log netstat every 30s so we can see if/
+    # when the port appears.
+    $MaxWait = 120
     $Elapsed = 0
 
     while ($Elapsed -lt $MaxWait) {
         if ($ChromeProcess.HasExited) {
             Write-Log "ERROR: Chrome exited while waiting for CDP (exit code: $($ChromeProcess.ExitCode))"
             exit 1
+        }
+        if ($Elapsed -gt 0 -and $Elapsed % 30 -eq 0) {
+            $portNow = netstat -an 2>$null | Select-String ":$DebugPort "
+            Write-Log "Port $DebugPort at ${Elapsed}s: $(if ($portNow) { "BOUND - $portNow" } else { 'not yet bound' })"
         }
         try {
             Invoke-WebRequest -Uri $CdpUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
