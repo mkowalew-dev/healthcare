@@ -87,7 +87,7 @@ $chromeLines = $tasklistOut | Where-Object { $_ -match 'chrome\.exe' }
 if ($chromeLines) {
     Write-Log "Killing existing Chrome processes (all users)..."
     $chromeLines | ForEach-Object { Write-Log "  $_" }
-    & taskkill /F /IM chrome.exe /T 2>$null | Out-Null
+    & taskkill /F /IM chrome.exe /T 2>&1 | Out-Null
     Start-Sleep -Seconds 2
     Write-Log "Chrome killed"
 }
