@@ -101,6 +101,18 @@ if ($existingChrome) {
     Start-Sleep -Seconds 2
 }
 
+# -- Clear Chrome session files so the profile starts with no restored tabs ----
+# --no-restore-session-state only suppresses crash recovery; deleting these
+# files also overrides the "Continue where you left off" startup preference.
+$SessionFiles = @("Current Session", "Current Tabs", "Last Session", "Last Tabs")
+foreach ($f in $SessionFiles) {
+    $path = Join-Path $UserDataDir $ProfileDir $f
+    if (Test-Path $path) {
+        Remove-Item $path -Force
+        Write-Log "Cleared session file: $f"
+    }
+}
+
 # -- Launch Chrome externally with remote-debugging-port ----------------------
 # Running Chrome this way means Playwright's --enable-automation flag is never
 # added, so the ThousandEyes Endpoint Agent extension reports metrics normally.
