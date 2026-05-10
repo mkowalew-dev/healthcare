@@ -149,6 +149,9 @@ if (-not $CdpReady) {
     }
 
     # -- Launch Chrome externally with remote-debugging-port ------------------
+    # Use Start-Process (UseShellExecute=true) so Chrome gets the proper Window
+    # Station / Desktop context it needs to initialise its GUI and message pump.
+    # Without ShellExecute, Chrome starts but never binds the debug port.
     $ChromeArgs = "--remote-debugging-port=$DebugPort " +
                   "--user-data-dir=`"$UserDataDir`" " +
                   "--profile-directory=`"$ProfileDir`" " +
@@ -159,14 +162,9 @@ if (-not $CdpReady) {
                   "--no-first-run " +
                   "about:blank"
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName        = $ChromeExe
-    $psi.UseShellExecute = $false
-    $psi.Arguments       = $ChromeArgs
-
     Write-Log "Chrome args    : $ChromeArgs"
     Write-Log "Starting Chrome with remote-debugging-port=$DebugPort ..."
-    $ChromeProcess = [System.Diagnostics.Process]::Start($psi)
+    $ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgs -PassThru
 
     # -- Wait for Chrome CDP to become available (up to ~3 min) ---------------
     # Chrome may run a crash-recovery scan on startup if the previous session
