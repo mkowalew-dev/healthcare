@@ -77,6 +77,24 @@ if (-not $UserDataDir) {
 
 $ProfileDir = if ($env:CHROME_PROFILE_DIR) { $env:CHROME_PROFILE_DIR } else { "Profile 1" }
 
+# -- Redirect default Chrome user data dir via NTFS junction -------------------
+# Chrome 148+ blocks remote debugging (even via pipe) when --user-data-dir is
+# Chrome's own default path (%LOCALAPPDATA%\Google\Chrome\User Data).  Chrome
+# compares the literal path string, not the resolved filesystem path, so an
+# NTFS junction alias at a non-default location bypasses the block.
+# mklink /J does not require admin rights.
+$DefaultChromeDir = Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"
+if ([System.IO.Path]::GetFullPath($UserDataDir) -eq [System.IO.Path]::GetFullPath($DefaultChromeDir)) {
+    $JunctionDir = "C:\TE-Chrome-Profile"
+    if (-not (Test-Path $JunctionDir)) {
+        Write-Log "Creating NTFS junction: $JunctionDir -> $UserDataDir"
+        cmd /c mklink /J "$JunctionDir" "$UserDataDir" 2>&1 | Out-Null
+    }
+    Write-Log "Redirecting user data dir via junction: $JunctionDir"
+    $UserDataDir = $JunctionDir
+    [System.Environment]::SetEnvironmentVariable("CHROME_USER_DATA_DIR", $JunctionDir, "Process")
+}
+
 Write-Log "Chrome profile : $UserDataDir\$ProfileDir"
 
 # -- Kill any existing Chrome to release the profile singleton lock ------------
