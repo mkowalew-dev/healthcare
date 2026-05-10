@@ -37,7 +37,7 @@ export const test = base.extend<TeFixtures>({
         '--no-default-browser-check',
         '--no-first-run',
       ],
-      ignoreDefaultArgs: ['--enable-automation'],
+      ignoreDefaultArgs: ['--enable-automation', '--disable-extensions'],
       ignoreHTTPSErrors: true,
     });
 
