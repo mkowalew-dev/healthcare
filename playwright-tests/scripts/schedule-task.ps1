@@ -124,11 +124,12 @@ $Action    = New-ScheduledTaskAction `
 
 $StartTime   = (Get-Date).Date.AddHours(0)
 $RepeatEvery = [System.TimeSpan]::FromMinutes($IntervalMinutes)
-$Duration    = [System.TimeSpan]::MaxValue
 
+# Omitting -RepetitionDuration is the correct way to get indefinite repetition
+# in PowerShell 5.1 — [TimeSpan]::MaxValue serialises to an XML duration that
+# the Task Scheduler XML parser rejects as out of range.
 $Trigger = New-ScheduledTaskTrigger -Once -At $StartTime `
-    -RepetitionInterval $RepeatEvery `
-    -RepetitionDuration $Duration
+    -RepetitionInterval $RepeatEvery
 
 $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit  ([System.TimeSpan]::FromMinutes([Math]::Max(10, $IntervalMinutes * 2))) `
