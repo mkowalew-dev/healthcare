@@ -39,5 +39,9 @@ test.describe('PACS - Radiology Workstation Login', () => {
     // settle so the ThousandEyes extension captures the full page-load
     // waterfall before the fixture navigates away to about:blank.
     await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+
+    // 5. Logout
+    await page.click('[data-testid="worklist-logout"]');
+    await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
   });
 });
