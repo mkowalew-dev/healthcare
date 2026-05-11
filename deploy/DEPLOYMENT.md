@@ -644,6 +644,18 @@ curl -v https://mychart.pseudo-co.com/ping
 | Transaction — Patient login (MyChart) | see script below | Step failure |
 | Transaction — Provider ePrescribe (CareConnect) | see script below | Step failure |
 
+### Endpoint Agent synthetic tests (on-premises Windows machine)
+
+The Playwright test suite in `playwright-tests/` runs on the Windows test machine and generates Endpoint Agent sessions. No additional ThousandEyes test configuration is required — sessions appear automatically under **Endpoint Agents → Views → Browser Sessions** after each scheduled run.
+
+To alert on synthetic test failures, configure an **Endpoint Agent Scheduled Test** in ThousandEyes targeting the Windows machine, or monitor the scheduled task's exit code via the log files in `playwright-tests\logs\`.
+
+| Portal tested | Endpoint Agent view |
+|---------------|-------------------|
+| CareConnect provider login | Browser session — `careconnect.pseudo-co.com` |
+| MyChart patient login | Browser session — `mychart.pseudo-co.com` |
+| PACS radiologist login | Browser session — `<PACS_PUBLIC_IP>:5174` |
+
 ### PACS tests (Enterprise Agent targeting VM5)
 
 Set `PACS_PUBLIC_IP` in `config.env` to VM5's IP address. Use `127.0.0.1` only when the ThousandEyes Enterprise Agent runs on the same machine as the PACS server.
@@ -767,7 +779,150 @@ index=careconnect path="/fhir/*"
 
 ---
 
-## Troubleshooting
+## Endpoint Synthetic Tests (Playwright + ThousandEyes Endpoint Agent)
+
+The `playwright-tests/` directory contains a Playwright test suite that runs on an on-premises Windows machine alongside the ThousandEyes Endpoint Agent Chrome extension. Each scheduled run performs a full browser login flow against CareConnect, MyChart, and PACS, generating real Endpoint Agent telemetry — network path data, waterfall timings, and BGP visibility from the site network to each application.
+
+### Why external Chrome + CDP
+
+The ThousandEyes Endpoint Agent extension suppresses metric reporting when Chrome is launched by an automation tool (it detects Playwright's `--enable-automation` flag and the `navigator.webdriver` property). To avoid this, the script launches Chrome externally as a normal user process, then Playwright attaches to it via the Chrome DevTools Protocol (CDP). Because Playwright never launched Chrome, none of its automation flags are injected.
+
+### Prerequisites
+
+- Windows 10/11 test machine at the target site
+- Google Chrome 130+ installed
+- ThousandEyes Endpoint Agent installed and authenticated in a Chrome profile
+- Node.js 20+ and Git installed
+- The machine must have network access to the CareConnect, MyChart, and PACS URLs
+
+### One-time setup
+
+**1. Clone the repository:**
+
+```powershell
+git clone <repo-url> C:\Users\<user>\healthcare
+cd C:\Users\<user>\healthcare\playwright-tests
+npm install
+```
+
+**2. Configure `.env`:**
+
+```powershell
+copy .env.example .env
+notepad .env
+```
+
+Edit `.env` with values for this machine:
+
+```ini
+# Application URLs
+CARECONNECT_URL=https://careconnect.pseudo-co.com
+MYCHART_URL=https://mychart.pseudo-co.com
+PACS_URL=http://pacs.pseudo-co.com:5174
+
+# Shared demo password
+DEMO_PASSWORD=Demo123!
+
+# Chrome profile that has the ThousandEyes extension installed and authenticated.
+# Set CHROME_USER_DATA_DIR to the User Data parent directory (NOT the profile folder).
+CHROME_USER_DATA_DIR=C:\Users\<user>\AppData\Local\Google\Chrome\User Data
+CHROME_PROFILE_DIR=Profile 1
+CHROME_DEBUG_PORT=9222
+```
+
+To find which profile has the TE extension: open `chrome://version` in Chrome — the **Profile Path** field shows the full path. The folder name (e.g. `Profile 1`, `Default`) is your `CHROME_PROFILE_DIR`; everything up to but not including that folder name is `CHROME_USER_DATA_DIR`.
+
+**3. NTFS junction (created automatically on first run):**
+
+Chrome 130+ blocks the remote debugging port when `--user-data-dir` equals Chrome's own default path (`%LOCALAPPDATA%\Google\Chrome\User Data`). The script detects this and automatically creates an NTFS junction at `C:\TE-Chrome-Profile` pointing to the real profile directory. Chrome receives the non-default junction path and binds the debug port normally. The junction requires no admin rights (`mklink /J`) and is reused on every subsequent run.
+
+### Running tests
+
+```powershell
+cd C:\Users\<user>\healthcare\playwright-tests
+
+# Run all three tests
+.\scripts\run-tests.ps1
+
+# Run a single suite
+.\scripts\run-tests.ps1 -TestFilter "CareConnect"
+.\scripts\run-tests.ps1 -TestFilter "MyChart"
+.\scripts\run-tests.ps1 -TestFilter "PACS"
+```
+
+Each run:
+1. Creates the `C:\TE-Chrome-Profile` junction if it doesn't exist
+2. Kills any existing Chrome to release the profile singleton lock
+3. Patches the profile `Preferences` file to clear any crash-recovery state (prevents the "Restore pages?" dialog from blocking startup)
+4. Deletes session files (`Current Session`, `Current Tabs`, etc.) so Chrome opens to `about:blank`
+5. Launches Chrome with `--remote-debugging-port=9222` against the junction path
+6. Waits for the CDP endpoint to become available (up to 60s)
+7. Runs all three Playwright login tests (serial, one worker)
+8. Waits 5s for the TE extension to flush pending metrics
+9. Closes Chrome gracefully (`CloseMainWindow`) so the profile is saved cleanly — preventing crash-recovery delays on the next run
+10. Writes a timestamped log to `playwright-tests/logs/test-run_<timestamp>.log`
+
+Logs older than 30 days are pruned automatically.
+
+### Scheduling with Windows Task Scheduler
+
+To run tests on a schedule (e.g. every 15 minutes):
+
+1. Open **Task Scheduler** → **Create Task**
+2. **General** tab:
+   - Name: `CareConnect Synthetic Tests`
+   - Run whether user is logged on or not: ✓
+   - Run with highest privileges: leave unchecked (no admin needed)
+3. **Triggers** tab → New → **On a schedule** → Repeat every `15 minutes` indefinitely
+4. **Actions** tab → New:
+   - Program: `powershell.exe`
+   - Arguments: `-NonInteractive -ExecutionPolicy Bypass -File "C:\Users\<user>\healthcare\playwright-tests\scripts\run-tests.ps1"`
+   - Start in: `C:\Users\<user>\healthcare\playwright-tests`
+5. **Settings** tab:
+   - If the task is already running: **Do not start a new instance**
+   - Stop the task if it runs longer than: `10 minutes`
+
+Verify the task runs correctly by right-clicking → **Run** and checking the log file in `playwright-tests\logs\`.
+
+### What gets reported to ThousandEyes
+
+When the TE Endpoint Agent extension service worker is active during a test run, ThousandEyes receives:
+
+- **Network path** (traceroute hops) from the site to each application server
+- **Page load waterfall** for each navigation (`page.goto(...)`)
+- **HTTP timing** — DNS, TCP connect, TLS, TTFB, content transfer per request
+- **BGP visibility** — route changes or prefix withdrawals upstream of the site
+
+Sessions appear in the ThousandEyes portal under **Endpoint Agents → Views → Browser Sessions**, filtered by the agent name for this Windows machine.
+
+### Confirming TE is active
+
+The test output includes a diagnostic line before each test:
+
+```
+[TE] Extension service worker detected: chrome-extension://ddnennmeinlkhkmajmmfaojcnpddnpgb/...
+```
+
+If this shows `WARNING: Extension service worker not detected`, check:
+- The TE extension is installed in the Chrome profile named in `CHROME_PROFILE_DIR`
+- The extension is authenticated (sign in to `app.thousandeyes.com` in that profile)
+- No enterprise Chrome policy is disabling extensions (`chrome://policy` should show no `ExtensionSettings` or `ExtensionInstallBlocklist` entries blocking the TE extension ID `ddnennmeinlkhkmajmmfaojcnpddnpgb`)
+
+### Troubleshooting synthetic tests
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Chrome CDP not ready after 60 seconds` | Debug port not binding | Check `chrome://policy` — if `RemoteDebuggingAllowed` is `0`, IT must set it to `1` via GPO or push `HKLM\SOFTWARE\Policies\Google\Chrome\RemoteDebuggingAllowed=1` |
+| `DevTools remote debugging requires a non-default data directory` | `CHROME_USER_DATA_DIR` is Chrome's default path but junction wasn't created | Verify the script ran past the junction step; check `C:\TE-Chrome-Profile` exists and is a junction (`dir C:\` should show `<JUNCTION>` next to it) |
+| `[TE] WARNING: Extension service worker not detected` | Extension not in the configured profile | Open `chrome://extensions` in the TE-authenticated profile — confirm extension ID `ddnennmeinlkhkmajmmfaojcnpddnpgb` is present and enabled |
+| Test times out at `page.goto` | Application URL unreachable from this machine | Check firewall rules; verify the URL opens manually in Chrome |
+| `Worker teardown timeout exceeded` | `context.close()` hanging | Usually resolves after a clean Chrome shutdown; delete `C:\TE-Chrome-Profile\SingletonLock` and re-run |
+| `Requested registry access is not allowed` on HKLM | No admin rights | Use HKCU instead: `New-Item -Path "HKCU:\SOFTWARE\Policies\Google\Chrome" -Force; New-ItemProperty -Path "HKCU:\SOFTWARE\Policies\Google\Chrome" -Name "RemoteDebuggingAllowed" -Value 1 -PropertyType DWORD -Force` |
+| Chrome shows "Restore pages?" dialog every run | Profile in crash state | Script patches `Preferences` automatically; if it persists, manually open Chrome, dismiss the dialog, and close Chrome gracefully before the next run |
+| No sessions appearing in TE portal | TE extension not authenticated | Sign in to `app.thousandeyes.com` in the Chrome profile used by the tests |
+| Tests pass but TE shows no metrics | `--enable-automation` flag injected | Should not occur with the external-Chrome approach; verify the script is running (not `npx playwright test` directly) |
+
+---
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|

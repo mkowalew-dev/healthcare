@@ -20,6 +20,9 @@ An EPIC-compatible Electronic Health Record (EHR) demo application built for dem
 | **Patient** | `patient@demo.com` | `Demo123!` | mychart.pseudo-co.com |
 | **Provider** | `provider@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
 | **Admin** | `admin@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
+| **Radiologist** | `dr.chen@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
+| **Radiologist** | `dr.patel@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
+| **CT/MRI Tech** | `tech.jones@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
 
 ---
 
@@ -129,6 +132,20 @@ Or use **Admin → Integrations → Mock Simulation Controls** in the UI.
 - W3C `traceparent` / `tracestate` propagated on all requests
 - Mock services expose `/surescripts/get`, `/quest/get`, `/twilio/get`, `/sendgrid/get` for HTTP Server tests
 
+#### Endpoint Synthetic Tests (Playwright + ThousandEyes Endpoint Agent)
+
+The `playwright-tests/` directory contains a scheduled Playwright test suite that runs login flows from an on-premises Windows test machine with the ThousandEyes Endpoint Agent Chrome extension installed. This captures **real end-user network path visibility** — latency, routing, and loss between the on-prem site and each application — rather than cloud-agent synthetic probes.
+
+| Test | File | What it validates |
+|------|------|------------------|
+| CareConnect provider login | `tests/careconnect-login.spec.ts` | Login form loads, provider signs in, no error banner |
+| MyChart patient login | `tests/mychart-login.spec.ts` | Login form loads, patient signs in, redirected off `/login` |
+| PACS radiologist login | `tests/pacs-login.spec.ts` | Login form loads, email pre-filled, radiologist signs in to worklist |
+
+**How it works:** Chrome is launched externally by `run-tests.ps1` (not by Playwright) so none of Playwright's automation flags are injected. Playwright connects to the running Chrome via the Chrome DevTools Protocol (CDP). Because Chrome runs as a normal user browser, the ThousandEyes Endpoint Agent extension operates normally and reports network telemetry for every page load performed during the tests.
+
+See [`deploy/DEPLOYMENT.md` → Endpoint Synthetic Tests](deploy/DEPLOYMENT.md) for setup and scheduling instructions.
+
 ### Splunk
 - All API requests logged in structured JSON with `requestId`, `userId`, `duration`, `statusCode`
 - Integration calls logged with `vendor`, `latencyMs`, `url` fields for service-level visibility
@@ -230,4 +247,17 @@ See [`deploy/DEPLOYMENT.md`](deploy/DEPLOYMENT.md) for the full multi-VM guide.
 ```bash
 bash deploy/deploy.sh all       # Deploys API + Frontend + Mock
 bash deploy/deploy.sh mock      # Mock services only
+```
+
+**Endpoint Synthetic Tests (Windows test machine):**
+```powershell
+# One-time setup
+git clone <repo> C:\Users\<user>\healthcare
+cd C:\Users\<user>\healthcare\playwright-tests
+npm install
+copy .env.example .env   # then edit .env with your URLs and Chrome profile path
+
+# Run tests
+.\scripts\run-tests.ps1
+.\scripts\run-tests.ps1 -TestFilter "PACS"   # single suite
 ```
