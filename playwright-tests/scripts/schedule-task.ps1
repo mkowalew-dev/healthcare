@@ -148,7 +148,7 @@ if ($RunAsService) {
 } else {
     $Principal = New-ScheduledTaskPrincipal `
         -UserId    ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
-        -LogonType InteractiveToken `
+        -LogonType Interactive `
         -RunLevel  Limited
 }
 
