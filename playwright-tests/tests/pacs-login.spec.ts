@@ -6,6 +6,11 @@ const PASSWORD = process.env.DEMO_PASSWORD || 'Demo123!';
 test.describe('PACS - Radiology Workstation Login', () => {
   test('login page loads and radiologist can sign in to worklist', async ({ page }) => {
     // 1. Navigate to login
+    // Clear any persisted JWT from a previous run first — the PACS app stores
+    // its auth token in localStorage and auto-redirects to /worklist when a
+    // valid token exists, which prevents the login form from rendering.
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => window.localStorage.clear());
     // waitUntil: 'load' (not domcontentloaded) — PACS runs on a local Vite dev
     // server and React needs JS execution to render the form, which happens
     // after DOMContentLoaded.
