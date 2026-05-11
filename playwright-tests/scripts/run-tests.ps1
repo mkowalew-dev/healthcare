@@ -190,8 +190,6 @@ if (-not $CdpReady) {
     $ChromeProcess = Start-Process -FilePath $ChromeExe -ArgumentList $ChromeArgs -PassThru
 
     Start-Sleep -Seconds 3
-    $tasklistAfter = & tasklist /FI "IMAGENAME eq chrome.exe" /NH /V 2>$null
-    $tasklistAfter | Where-Object { $_ -match 'chrome\.exe' } | ForEach-Object { Write-Log "Chrome proc: $_" }
 
     # -- Wait for Chrome CDP (up to 60s) --------------------------------------
     $MaxWait = 60
