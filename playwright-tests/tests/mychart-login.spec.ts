@@ -34,5 +34,10 @@ test.describe('MyChart - Patient Portal Login', () => {
 
     const errorBanner = page.locator('[data-testid="login-error-message"]');
     await expect(errorBanner).not.toBeVisible();
+
+    // Wait for the patient dashboard API calls (appointments, labs, medications)
+    // to complete so the ThousandEyes extension captures the full page-load
+    // waterfall before the fixture navigates away to about:blank.
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
   });
 });

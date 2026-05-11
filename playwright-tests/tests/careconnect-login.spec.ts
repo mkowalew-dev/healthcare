@@ -28,5 +28,10 @@ test.describe('CareConnect - Provider Login', () => {
     await expect(page).toHaveURL(/\/provider\/dashboard/, { timeout: 30_000 });
 
     await expect(page.locator('nav')).toBeVisible({ timeout: 15_000 });
+
+    // Wait for the dashboard API calls (appointments, messages, patient metrics)
+    // to complete so the ThousandEyes extension captures the full page-load
+    // waterfall before the fixture navigates away to about:blank.
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
   });
 });

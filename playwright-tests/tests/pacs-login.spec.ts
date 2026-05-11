@@ -34,5 +34,10 @@ test.describe('PACS - Radiology Workstation Login', () => {
     await expect(
       page.locator('table, [data-testid="worklist"], h1, h2').first(),
     ).toBeVisible({ timeout: 15_000 });
+
+    // Wait for the worklist data fetch and any DICOM thumbnail requests to
+    // settle so the ThousandEyes extension captures the full page-load
+    // waterfall before the fixture navigates away to about:blank.
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
   });
 });
