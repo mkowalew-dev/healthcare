@@ -171,6 +171,16 @@ ECOEOF
       log "Lab simulator: interval=${LAB_RESULT_INTERVAL_MS}ms, min_age=${LAB_MIN_AGE_MS:-${LAB_RESULT_INTERVAL_MS}}ms"
     fi
 
+    # MyChart scheduled failure injection (MYCHART_FAILURE_ENABLED must be set to activate)
+    if [[ -n "${MYCHART_FAILURE_ENABLED:-}" ]]; then
+      set_env MYCHART_FAILURE_ENABLED  "${MYCHART_FAILURE_ENABLED}"       "${APP_DIR}/.env"
+      set_env MYCHART_FAILURE_TYPE     "${MYCHART_FAILURE_TYPE:-api}"     "${APP_DIR}/.env"
+      set_env MYCHART_FAILURE_HOUR     "${MYCHART_FAILURE_HOUR:-14}"      "${APP_DIR}/.env"
+      set_env MYCHART_FAILURE_MINUTE   "${MYCHART_FAILURE_MINUTE:-0}"     "${APP_DIR}/.env"
+      set_env MYCHART_FAILURE_DURATION "${MYCHART_FAILURE_DURATION:-15}"  "${APP_DIR}/.env"
+      log "MyChart failure injection: enabled=${MYCHART_FAILURE_ENABLED} type=${MYCHART_FAILURE_TYPE:-api} at ${MYCHART_FAILURE_HOUR:-14}:$(printf '%02d' "${MYCHART_FAILURE_MINUTE:-0}") for ${MYCHART_FAILURE_DURATION:-15}min"
+    fi
+
     # Restart via systemd — pm2-runtime re-reads ecosystem.config.js and starts all services
     systemctl restart careconnect-api
     sleep 3

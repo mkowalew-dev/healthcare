@@ -6,12 +6,14 @@ require('../tracing');
 
 const express = require('express');
 const { requestLogger } = require('../middleware/logger');
+const { createFailureInjector } = require('../middleware/failure-injector');
 
 const app = express();
 const PORT = process.env.LABS_SERVICE_PORT || 3012;
 
 app.use(express.json({ limit: '10mb' }));
 app.use(requestLogger);
+app.use(createFailureInjector('careconnect-labs'));
 
 app.get('/health', (req, res) =>
   res.json({ status: 'healthy', service: 'careconnect-labs', uptime: process.uptime() })

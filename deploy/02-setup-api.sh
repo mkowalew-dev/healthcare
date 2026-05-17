@@ -161,6 +161,14 @@ FHIR_BASE_URL=https://${CLINICAL_HOST:-${FRONTEND_HOST:-$HOSTNAME}}/fhir
 # Lab result simulator — results pending labs on a background interval
 LAB_RESULT_INTERVAL_MS=${LAB_RESULT_INTERVAL_MS:-900000}
 LAB_MIN_AGE_MS=${LAB_MIN_AGE_MS:-${LAB_RESULT_INTERVAL_MS:-900000}}
+
+# MyChart scheduled failure injection — set MYCHART_FAILURE_ENABLED=true to activate
+# See backend/src/middleware/failure-injector.js and deploy/config.env.example for details
+MYCHART_FAILURE_ENABLED=${MYCHART_FAILURE_ENABLED:-}
+MYCHART_FAILURE_TYPE=${MYCHART_FAILURE_TYPE:-api}
+MYCHART_FAILURE_HOUR=${MYCHART_FAILURE_HOUR:-14}
+MYCHART_FAILURE_MINUTE=${MYCHART_FAILURE_MINUTE:-0}
+MYCHART_FAILURE_DURATION=${MYCHART_FAILURE_DURATION:-15}
 EOF
 chmod 600 "${APP_DIR}/.env"
 log "Environment file written"

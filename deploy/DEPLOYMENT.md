@@ -632,6 +632,76 @@ bash deploy/local-deploy.sh logs viewer
 bash deploy/local-deploy.sh update all
 ```
 
+### MyChart scheduled failure injection (ThousandEyes + Splunk APM demo)
+
+Injects daily patient-portal failures across labs, medications, appointments, messages, and billing — without touching the clinical portal. Designed to produce ThousandEyes synthetic alerts alongside correlated Splunk APM error traces so you can walk through the full observability story in a single demo window.
+
+**Configure in `deploy/config.env`:**
+
+```bash
+# ── MyChart Scheduled Failure Injection ──────────────────────
+MYCHART_FAILURE_ENABLED=true
+MYCHART_FAILURE_TYPE=api        # api | db — see failure modes below
+MYCHART_FAILURE_HOUR=14         # 24h server-local time (14 = 2:00 PM)
+MYCHART_FAILURE_MINUTE=0
+MYCHART_FAILURE_DURATION=15     # minutes — auto-resolves after this
+```
+
+**Deploy the configuration change:**
+
+```bash
+bash deploy/aws-deploy.sh update api
+```
+
+The injector reads env vars at process startup, so a code update is not required if only the schedule or type is changing — `update api` rewrites the `.env` on VM2 and does a PM2 reload.
+
+**To disable — empty the flag and re-deploy:**
+
+```bash
+# In config.env:
+MYCHART_FAILURE_ENABLED=
+
+bash deploy/aws-deploy.sh update api
+```
+
+**Failure modes:**
+
+| Type | What happens | ThousandEyes | Splunk APM |
+|------|-------------|--------------|------------|
+| `api` | Returns HTTP 503 immediately. Simulates upstream EHR integration outage. | HTTP synthetic test fails (503). TE alert fires within one test cycle. | `mychart.failure.api` child span on each affected service; gateway CLIENT span shows 503 in < 5 ms. Clean error — no latency. |
+| `db` | Holds the request for 8–12 s, then returns HTTP 503. Simulates PostgreSQL connection pool exhaustion. | Response-time alert fires first; 503 follows. Two-phase signal that mirrors real DB saturation. | `mychart.failure.db` child span with 8–12 s duration; service map shows red edges from each patient service to the database node. |
+
+**Health endpoints are always exempt** — `/health` on each service is never intercepted, so PM2 process monitoring, the API gateway health check, and ThousandEyes HTTP Server tests targeting `/health` stay green. Only patient data routes (labs, medications, appointments, messages, bills) return 503.
+
+**What Splunk APM shows:**
+
+Every failed request produces an OTel child span with these attributes, queryable in Trace Analyzer and filterable in the service map:
+
+| Attribute | Values |
+|-----------|--------|
+| `error` | `true` |
+| `mychart.failure.type` | `api` or `db` |
+| `mychart.failure.reason` | Human-readable description |
+| `mychart.failure.window_start` | ISO 8601 timestamp |
+| `mychart.failure.window_end` | ISO 8601 timestamp |
+| `mychart.patient_impact` | `true` |
+| `http.status_code` | `503` |
+
+The span name is `mychart.failure.api` or `mychart.failure.db` — use this as a filter in Splunk APM Trace Search to isolate injection events from organic errors.
+
+**Affected services (VM2 PM2 processes):**
+
+- `careconnect-labs` — lab results, medications
+- `careconnect-appointments` — appointment booking and history
+- `careconnect-billing` — bill pay
+- `careconnect-notifications` — secure messages
+
+**Suggested ThousandEyes transaction test for this failure:**
+
+Extend the existing Patient login transaction test (see below) to navigate to a data-heavy page (e.g. labs or appointments) after login. During the failure window the API call will fail, the React component will display an error state, and the transaction step will time out — giving you a clean TE → Splunk APM drill-down story.
+
+---
+
 ### Simulate PACS WAN degradation (ThousandEyes demo)
 
 Raise image latency to simulate a slow WAN path between the radiologist workstation and the PACS server. ThousandEyes waterfall charts will show the degradation; radiologists notice slow image loads.
@@ -799,6 +869,38 @@ await driver.findElement(By.css('[data-testid="nav-link-test-results"]')).click(
 await driver.wait(until.urlContains('/patient/labs'), 5000);
 ```
 
+### Transaction test — MyChart scheduled failure (extended patient flow)
+
+Use this extended version during the `MYCHART_FAILURE_*` window. Steps 1–3 succeed (login is never blocked); steps 4–6 fail when the injector is active, producing a clean TE alert → Splunk APM drill-down story.
+
+```javascript
+import { driver, By, until } from 'thousand-eyes-recorder';
+
+// Step 1 — Load patient portal
+await driver.get('https://mychart.pseudo-co.com/');
+await driver.wait(until.titleContains('MyChart'), 10000);
+
+// Step 2 — Log in (auth route is never affected by failure injection)
+await driver.findElement(By.css('input[type="email"]')).sendKeys('patient@demo.com');
+await driver.findElement(By.css('input[type="password"]')).sendKeys('Demo123!');
+await driver.findElement(By.css('button[type="submit"]')).click();
+await driver.wait(until.urlContains('/patient/dashboard'), 10000);
+
+// Step 3 — Navigate to appointments (triggers /api/appointments call)
+await driver.findElement(By.css('[data-testid="nav-link-appointments"]')).click();
+await driver.wait(until.urlContains('/patient/appointments'), 5000);
+// During api failure: page loads but shows error state — step times out
+// During db failure: step hangs 8–12 s before the error state appears
+await driver.wait(until.elementLocated(By.css('[data-testid="appointment-card"], [data-testid="error-state"]')), 15000);
+
+// Step 4 — Navigate to lab results (triggers /api/labs call)
+await driver.findElement(By.css('[data-testid="nav-link-test-results"]')).click();
+await driver.wait(until.urlContains('/patient/labs'), 5000);
+await driver.wait(until.elementLocated(By.css('[data-testid="lab-result-row"], [data-testid="error-state"]')), 15000);
+```
+
+**ThousandEyes alert recommended:** configure the transaction to alert on any step taking > 12 s or resulting in an error element (`[data-testid="error-state"]`). During the `api` failure window the step fails fast; during `db` failure the step degrades first (response time alert fires), then fails — matching the two-phase signal described in the failure modes table above.
+
 ### Transaction test — Provider ePrescribing (CareConnect)
 
 ```javascript
@@ -855,6 +957,25 @@ index=careconnect path="/fhir/*"
 | rex field=path "/fhir/(?<resource>[^/?]+)"
 | stats count by resource, statusCode
 ```
+
+#### MyChart failure injection — log queries
+
+```spl
+# All MyChart failure events across all patient services
+index=careconnect (message="MyChart API failure injection" OR message="MyChart DB failure injection")
+| table _time, service, failure_type, delay_ms, path
+| sort -_time
+
+# Failure event rate by service during the active window
+index=careconnect message="MyChart*failure injection"
+| timechart span=1m count by service
+
+# DB failure injection — identify slow requests (delay_ms field present for db type only)
+index=careconnect message="MyChart DB failure injection"
+| stats avg(delay_ms) as avg_delay_ms, max(delay_ms) as max_delay_ms, count by service
+```
+
+Use **Splunk APM Trace Analyzer** to correlate: filter on `mychart.failure.type = db` or `mychart.failure.type = api` to isolate injection spans from organic errors, then click any trace to see the full gateway → service span chain.
 
 ---
 
@@ -1005,7 +1126,11 @@ If this shows `WARNING: Extension service worker not detected`, check:
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `aws-deploy.sh init` fails at SSH step | Wrong public IP or key path | Check `*_PUBLIC_IP` and `SSH_KEY` in config.env; verify `ssh ubuntu@<PUBLIC_IP>` works manually |
+| MyChart patient routes return 503 outside the failure window | `MYCHART_FAILURE_ENABLED=true` left set after a demo | Set `MYCHART_FAILURE_ENABLED=` (empty) in `config.env` and run `bash deploy/aws-deploy.sh update api` |
+| Failure window fires at the wrong clock time | VM2 system timezone differs from expected | SSH to VM2 and run `timedatectl` — set `MYCHART_FAILURE_HOUR` relative to the VM's local timezone, or `sudo timedatectl set-timezone America/New_York` to align with your demo timezone |
+| `/health` endpoint returns 503 during failure window | Custom health-check path being intercepted | Health endpoints are always exempt by design; if a non-`/health` path is in the health check URL, update it to `/health` |
+| Failure injection active but no `mychart.failure.*` spans in Splunk APM | Splunk APM not configured (no `SPLUNK_ACCESS_TOKEN`) | Set `SPLUNK_ACCESS_TOKEN` and `SPLUNK_REALM` in `config.env` and re-run `init api`; spans still appear in logs even without APM |
+| `bash deploy/aws-deploy.sh init` fails at SSH step | Wrong public IP or key path | Check `*_PUBLIC_IP` and `SSH_KEY` in config.env; verify `ssh ubuntu@<PUBLIC_IP>` works manually |
 | `Cannot connect to database` on init api | VM3 not ready or security group blocking | Confirm VM3 init completed; check SG allows VM2 private IP on port 5432 |
 | `MOCK_HOST not set` warning | `MOCK_PRIVATE_IP` blank in config.env | Set `MOCK_PRIVATE_IP` and re-run `init api` |
 | React SPA loads but `/api/*` returns 502 | Nginx proxy not reaching VM2 | `ssh ubuntu@<VM1> "sudo nginx -t"` — check API_PRIVATE_IPS in nginx config |
