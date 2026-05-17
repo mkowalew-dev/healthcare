@@ -59,12 +59,18 @@ source "$CONFIG"
 
 # ── PACS config with defaults ────────────────────────────────
 PACS_PUBLIC_IP="${PACS_PUBLIC_IP:-}"
-PACS_HOST="${PACS_HOST:-}"           # custom hostname, e.g. pacs.pseudo-co.com
+PACS_HOST="${PACS_HOST:-}"
+PACS_HOST="${PACS_HOST// /}"        # strip accidental whitespace from config.env
 PACS_SERVER_PORT="${PACS_SERVER_PORT:-3021}"
 PACS_VIEWER_PORT="${PACS_VIEWER_PORT:-5174}"
 PACS_JWT_SECRET="${PACS_JWT_SECRET:-pacs-demo-secret-change-me}"
 PACS_IMAGE_LATENCY_MS="${PACS_IMAGE_LATENCY_MS:-0}"
 PACS_IMAGE_LATENCY_JITTER_MS="${PACS_IMAGE_LATENCY_JITTER_MS:-0}"
+# Scheduled anomaly (cron) — applied in-memory, no PM2 restart
+PACS_ANOMALY_LATENCY_MS="${PACS_ANOMALY_LATENCY_MS:-1500}"
+PACS_ANOMALY_JITTER_MS="${PACS_ANOMALY_JITTER_MS:-300}"
+PACS_ANOMALY_ENABLE_CRON="${PACS_ANOMALY_ENABLE_CRON:-0 10 * * 1-5}"
+PACS_ANOMALY_DISABLE_CRON="${PACS_ANOMALY_DISABLE_CRON:-15 10 * * 1-5}"
 
 [[ -z "${PACS_PUBLIC_IP}" ]] && \
   { echo "Error: PACS_PUBLIC_IP not set in config.env" >&2; exit 1; }
@@ -247,6 +253,8 @@ PACS_PUBLIC_URL=${SERVER_URL}
 OTEL_SERVICE_NAME=careconnect-pacs
 IMAGE_LATENCY_MS=${PACS_IMAGE_LATENCY_MS}
 IMAGE_LATENCY_JITTER_MS=${PACS_IMAGE_LATENCY_JITTER_MS}
+ANOMALY_LATENCY_MS=${PACS_ANOMALY_LATENCY_MS}
+ANOMALY_JITTER_MS=${PACS_ANOMALY_JITTER_MS}
 SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN:-}
 SPLUNK_REALM=${SPLUNK_REALM:-us1}
 OTEL_EXPORTER_OTLP_ENDPOINT=${_otlp_endpoint}
@@ -274,15 +282,15 @@ EOF
 remote_pm2_start_server() {
   ssh_batch "${PACS_PUBLIC_IP}" bash <<EOF
 ${NVM_INIT}
-mkdir -p /var/log/careconnect
+mkdir -p "\$HOME/logs/careconnect"
 if pm2 describe pacs-server &>/dev/null; then
   pm2 restart pacs-server
 else
   pm2 start ${REMOTE_BASE}/server/src/index.js \
     --name pacs-server \
     --cwd  ${REMOTE_BASE}/server \
-    --output /var/log/careconnect/pacs-out.log \
-    --error  /var/log/careconnect/pacs-error.log \
+    --output "\$HOME/logs/careconnect/pacs-out.log" \
+    --error  "\$HOME/logs/careconnect/pacs-error.log" \
     --time
 fi
 pm2 save --force >/dev/null
@@ -302,6 +310,41 @@ pm2 start ${REMOTE_BASE}/viewer/node_modules/.bin/vite \
   -- preview
 pm2 save --force >/dev/null
 EOF
+}
+
+# Register PM2 as a systemd service so pacs-server + pacs-viewer survive VM reboots.
+# pm2 startup generates a sudo command that must be executed to install the unit file;
+# this function captures and runs it, using a TTY when passwordless sudo isn't available.
+remote_pm2_enable_startup() {
+  info "Configuring PM2 to auto-start on VM5 boot (requires sudo)..."
+
+  # Idempotent: skip if the systemd unit is already enabled.
+  if ssh_batch "${PACS_PUBLIC_IP}" \
+       "systemctl is-enabled pm2-${SSH_USER} 2>/dev/null | grep -q enabled" 2>/dev/null; then
+    log "PM2 systemd service already enabled — skipping"
+    return 0
+  fi
+
+  # pm2 startup prints the sudo command to run; grab just that line.
+  local startup_cmd
+  startup_cmd=$(ssh_batch "${PACS_PUBLIC_IP}" \
+    "${NVM_INIT}; pm2 startup 2>&1 | grep -o 'sudo env .*'" 2>/dev/null || true)
+
+  if [[ -z "$startup_cmd" ]]; then
+    warn "Could not determine PM2 startup command — skipping autostart setup"
+    warn "Run manually on VM5:  pm2 startup  then execute the printed sudo command, then  pm2 save"
+    return 0
+  fi
+
+  if ssh_batch "${PACS_PUBLIC_IP}" "sudo -n true" 2>/dev/null; then
+    ssh_batch "${PACS_PUBLIC_IP}" "${NVM_INIT}; $startup_cmd"
+  else
+    warn "Passwordless sudo not configured — you will be prompted for ${SSH_USER}'s sudo password"
+    warn "To avoid this on future runs: echo '${SSH_USER} ALL=(ALL) NOPASSWD: /usr/bin/bash' | sudo tee /etc/sudoers.d/pacs-deploy"
+    ssh_run "${PACS_PUBLIC_IP}" "${NVM_INIT}; $startup_cmd"
+  fi
+
+  log "PM2 will auto-start pacs-server + pacs-viewer on VM5 reboot"
 }
 
 # ════════════════════════════════════════════════════════════
@@ -366,6 +409,8 @@ init_viewer() {
   info "Starting PACS viewer via PM2 on VM5..."
   remote_pm2_start_viewer
 
+  remote_pm2_enable_startup
+
   sleep 2
   local code
   code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "${VIEWER_URL}" 2>/dev/null || echo "ERR")
@@ -399,7 +444,7 @@ init_samples() {
     log "Downloaded ${count} DICOM file(s) on VM5"
     info "Restarting PACS server to re-index new images..."
     ssh_batch "${PACS_PUBLIC_IP}" \
-      "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server || true"
+      "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server --update-env || true"
   else
     warn "No DICOM files downloaded — check internet connectivity on VM5 and retry"
     info "Retry: bash deploy/local-deploy.sh init samples"
@@ -469,7 +514,7 @@ update_server() {
 
   info "Zero-downtime reload via PM2..."
   ssh_batch "${PACS_PUBLIC_IP}" \
-    "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server || echo 'pacs-server not in PM2 — run: bash deploy/local-deploy.sh start server'"
+    "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server --update-env || echo 'pacs-server not in PM2 — run: bash deploy/local-deploy.sh start server'"
   log "PACS server updated"
 }
 
@@ -528,7 +573,7 @@ stop_viewer() {
 restart_server() {
   info "Restarting PACS server on VM5..."
   ssh_batch "${PACS_PUBLIC_IP}" \
-    "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server || echo 'pacs-server not in PM2 — run init server first'"
+    "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server --update-env || echo 'pacs-server not in PM2 — run init server first'"
   log "PACS server restarted"
 }
 
@@ -672,6 +717,60 @@ latency_clear() {
 }
 
 # ════════════════════════════════════════════════════════════
+# ANOMALY CRON — scheduled ThousandEyes demo anomaly
+# ════════════════════════════════════════════════════════════
+
+init_cron() {
+  header "VM5 — Scheduled ThousandEyes Demo Anomaly (Mon–Fri)"
+
+  info "Syncing anomaly script to VM5..."
+  rsync_to "${PACS_SERVER_SRC}/scripts/" "${PACS_PUBLIC_IP}" "${REMOTE_BASE}/server/scripts/"
+  ssh_batch "${PACS_PUBLIC_IP}" "chmod +x ${REMOTE_BASE}/server/scripts/pacs-anomaly.sh"
+
+  info "Writing anomaly config to server .env on VM5..."
+  remote_write_server_env
+
+  info "Installing cron schedule on VM5..."
+  ssh_batch "${PACS_PUBLIC_IP}" bash <<EOF
+mkdir -p "\$HOME/logs/careconnect"
+
+SCRIPT="${REMOTE_BASE}/server/scripts/pacs-anomaly.sh"
+LOG="\$HOME/logs/careconnect/anomaly.log"
+
+# Remove stale entries then install fresh schedule
+{
+  crontab -l 2>/dev/null | grep -v 'pacs-anomaly'
+  echo "${PACS_ANOMALY_ENABLE_CRON}  \$SCRIPT enable  >> \$LOG 2>&1  # pacs-anomaly"
+  echo "${PACS_ANOMALY_DISABLE_CRON} \$SCRIPT disable >> \$LOG 2>&1  # pacs-anomaly"
+} | crontab -
+
+echo "  Installed crontab entries:"
+crontab -l | grep 'pacs-anomaly'
+EOF
+
+  log "Anomaly cron installed on VM5"
+  echo ""
+  echo "  Anomaly schedule (VM5 system timezone):"
+  echo "    Enable:   ${PACS_ANOMALY_ENABLE_CRON}  → ${PACS_ANOMALY_LATENCY_MS}ms + ${PACS_ANOMALY_JITTER_MS}ms jitter"
+  echo "    Disable:  ${PACS_ANOMALY_DISABLE_CRON}"
+  echo "    Log:      ~/logs/careconnect/anomaly.log on VM5"
+  echo ""
+  echo "  Trigger manually (no need to wait for schedule):"
+  echo "    bash deploy/local-deploy.sh anomaly enable"
+  echo "    bash deploy/local-deploy.sh anomaly disable"
+}
+
+anomaly_run() {
+  local action="${1:-}"
+  [[ "$action" == "enable" || "$action" == "disable" ]] || \
+    err "Usage: bash deploy/local-deploy.sh anomaly [enable|disable]"
+  info "${action} PACS latency anomaly on VM5..."
+  ssh_batch "${PACS_PUBLIC_IP}" \
+    "bash ${REMOTE_BASE}/server/scripts/pacs-anomaly.sh ${action}"
+  log "Anomaly ${action}d"
+}
+
+# ════════════════════════════════════════════════════════════
 # LOGS — tail PM2 logs on VM5 via SSH
 # ════════════════════════════════════════════════════════════
 
@@ -699,9 +798,10 @@ case "$CMD" in
       server)  init_server ;;
       viewer)  init_viewer ;;
       samples) init_samples ;;
-      otel)   init_otel ;;
+      otel)    init_otel ;;
+      cron)    init_cron ;;
       all)
-        info "Full PACS provisioning on VM5 (${PACS_PUBLIC_IP}): server → viewer → DICOM samples  (~5–8 min)"
+        info "Full PACS provisioning on VM5 (${PACS_PUBLIC_IP}): server → viewer → PM2 autostart → DICOM samples  (~5–8 min)"
         echo ""
         init_server
         init_viewer
@@ -722,12 +822,13 @@ case "$CMD" in
   Usage: bash deploy/local-deploy.sh init [TARGET]
 
   Targets:
-    all       Full setup: server → viewer → DICOM samples  (recommended)
+    all       Full setup: server → viewer → PM2 autostart → DICOM samples  (recommended)
     server    Rsync, npm install, write .env, start DICOMweb server via PM2
-    viewer    Rsync, npm install (Cornerstone.js), write .env, start Vite via PM2
+    viewer    Rsync, npm install (Cornerstone.js), write .env, start Vite via PM2, enable PM2 boot startup
     samples   Download DICOM images on VM5 and restart server to index them
     otel      Install Splunk OTel Collector on VM5 (host metrics, logs, APM traces)
               Requires: SPLUNK_ACCESS_TOKEN + SPLUNK_PLATFORM_HEC_TOKEN in config.env
+    cron      Install the Mon–Fri scheduled latency anomaly cron on VM5
 
   Each target is idempotent — safe to re-run after a failure.
 
@@ -833,6 +934,10 @@ USAGE
     status_check
     ;;
 
+  anomaly)
+    anomaly_run "${TARGET}"
+    ;;
+
   latency)
     SUB="${2:-}"
     case "$SUB" in
@@ -889,6 +994,7 @@ USAGE
     stop    [server|viewer|all]          Stop services
     restart [server|viewer|all]          Restart services
     status                               Health check + PM2 process list on VM5
+    anomaly [enable|disable]             Trigger or clear the scheduled latency anomaly
     latency set <ms> [jitter_ms]        Simulate WAN degradation (ThousandEyes demo)
     latency clear                        Remove latency simulation
     latency status                       Show current latency settings
@@ -900,8 +1006,11 @@ USAGE
     bash deploy/local-deploy.sh update all          # after git pull
     bash deploy/local-deploy.sh init samples        # (re)download DICOM images
     bash deploy/local-deploy.sh status              # verify everything healthy
-    bash deploy/local-deploy.sh latency set 1500    # ThousandEyes demo: degrade
-    bash deploy/local-deploy.sh latency clear       # ThousandEyes demo: restore
+    bash deploy/local-deploy.sh init cron           # install scheduled anomaly (run once)
+    bash deploy/local-deploy.sh anomaly enable      # trigger anomaly now (on-demand)
+    bash deploy/local-deploy.sh anomaly disable     # restore normal immediately
+    bash deploy/local-deploy.sh latency set 1500    # manual ad-hoc degradation
+    bash deploy/local-deploy.sh latency clear       # clear manual degradation
     bash deploy/local-deploy.sh logs server         # debug server issues
 
   CONFIG (deploy/config.env — shared with aws-deploy.sh):
@@ -911,8 +1020,12 @@ USAGE
     PACS_SERVER_PORT       DICOMweb server port  (default: 3021)
     PACS_VIEWER_PORT       Viewer port           (default: 5174)
     PACS_JWT_SECRET        JWT signing secret
-    PACS_IMAGE_LATENCY_MS  Simulated latency ms  (ThousandEyes demo)
-    SPLUNK_ACCESS_TOKEN    Splunk O11y ingest token  (shared with cloud deploy)
+    PACS_IMAGE_LATENCY_MS        Simulated latency ms  (ThousandEyes demo — manual)
+    PACS_ANOMALY_LATENCY_MS      Latency ms for scheduled anomaly  (default: 1500)
+    PACS_ANOMALY_JITTER_MS       Jitter ms for scheduled anomaly   (default: 300)
+    PACS_ANOMALY_ENABLE_CRON     Cron expression to enable anomaly (default: 0 10 * * 1-5)
+    PACS_ANOMALY_DISABLE_CRON    Cron expression to end anomaly    (default: 15 10 * * 1-5)
+    SPLUNK_ACCESS_TOKEN          Splunk O11y ingest token  (shared with cloud deploy)
     SPLUNK_REALM           Splunk realm              (shared with cloud deploy)
 
   DEMO ACCOUNTS (password: pacs1234):
@@ -923,9 +1036,13 @@ USAGE
   THOUSANDEYES INTEGRATION:
     HTTP Server test:   http://<PACS_PUBLIC_IP>:<PACS_SERVER_PORT>/health
     HTTP Server test:   http://<PACS_PUBLIC_IP>:<PACS_SERVER_PORT>/ping
+    HTTP Server test:   http://<PACS_PUBLIC_IP>:<PACS_SERVER_PORT>/probe/small   (~200 KB)
+    HTTP Server test:   http://<PACS_PUBLIC_IP>:<PACS_SERVER_PORT>/probe/medium  (~2 MB)
+    HTTP Server test:   http://<PACS_PUBLIC_IP>:<PACS_SERVER_PORT>/probe/large   (~20 MB)
     Page Load test:     http://<PACS_PUBLIC_IP>:<PACS_VIEWER_PORT>
     Transaction:        login → worklist → open study → image loads
-    Latency demo:       bash deploy/local-deploy.sh latency set <ms>
+    Scheduled anomaly:  bash deploy/local-deploy.sh init cron  (Mon–Fri 10:00–10:15 by default)
+    On-demand anomaly:  bash deploy/local-deploy.sh anomaly enable|disable
 
   RELATED:
     bash deploy/aws-deploy.sh  init all    # cloud EHR deployment (VM1–VM4)

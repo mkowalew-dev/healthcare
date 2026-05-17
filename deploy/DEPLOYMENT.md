@@ -59,9 +59,12 @@ Both read from **`deploy/config.env`** — one source of truth for all configura
   │    /wado                    serve raw DICOM binary (unauthenticated) │
   │    /health                  study count, latency sim status, uptime  │
   │    /ping                    lightweight ThousandEyes HTTP SLO probe  │
+  │    /probe/small             ~200 KB incompressible payload (scout)   │
+  │    /probe/medium            ~2 MB incompressible payload (CT slice)  │
+  │    /probe/large             ~20 MB incompressible payload (volume)   │
   │    DICOM index built at startup — scans studies/*.dcm recursively    │
   │    Seed fallback — realistic metadata if no .dcm files present       │
-  │    Latency sim — IMAGE_LATENCY_MS adds per-slice delay to /wado      │
+  │    Latency sim — IMAGE_LATENCY_MS adds per-slice delay to all probes │
   │                                                                      │
   │  PACS Viewer  (pacs/viewer/)  React 18 · Vite · PM2 · :5174         │
   │    /worklist    study list from /api/worklist (radiologist's queue)  │
@@ -440,6 +443,82 @@ bash deploy/local-deploy.sh init samples
 | PACS Viewer | `http://<PACS_PUBLIC_IP>:5174` |
 | PACS API health | `http://<PACS_PUBLIC_IP>:3021/health` |
 | PACS ping | `http://<PACS_PUBLIC_IP>:3021/ping` |
+| Bandwidth probe — small | `http://<PACS_PUBLIC_IP>:3021/probe/small` |
+| Bandwidth probe — medium | `http://<PACS_PUBLIC_IP>:3021/probe/medium` |
+| Bandwidth probe — large | `http://<PACS_PUBLIC_IP>:3021/probe/large` |
+
+### Scheduled demo anomaly (Mon–Fri)
+
+The PACS server includes a cron-driven latency anomaly designed for SE demo teams. Every weekday at **10:00 AM** (VM5 system timezone), the server injects 1 500 ms + 300 ms jitter into every image retrieval and bandwidth probe response. At **10:15 AM** it clears automatically. The window is predictable so no manual setup is required before a demo.
+
+**Set up the cron (run once after `init all`):**
+
+```bash
+bash deploy/local-deploy.sh init cron
+```
+
+**Configure the schedule and intensity in `deploy/config.env`:**
+
+```bash
+PACS_ANOMALY_LATENCY_MS=1500          # ms of latency injected
+PACS_ANOMALY_JITTER_MS=300            # ms of added jitter (realism)
+PACS_ANOMALY_ENABLE_CRON=0 10 * * 1-5   # cron — enable at 10:00 AM Mon–Fri
+PACS_ANOMALY_DISABLE_CRON=15 10 * * 1-5 # cron — disable at 10:15 AM
+```
+
+Then re-run `init cron` to push the new schedule. The cron expressions run in the **VM5 system timezone** — check `timedatectl` on VM5 if the window doesn't fire at the expected wall-clock time.
+
+**Trigger on-demand (no need to wait for the schedule):**
+
+```bash
+bash deploy/local-deploy.sh anomaly enable   # start anomaly immediately
+bash deploy/local-deploy.sh anomaly disable  # restore normal immediately
+```
+
+**How it works:**
+
+The `pacs-anomaly.sh` script (deployed to `~/careconnect/pacs/server/scripts/`) calls `POST /api/demo/latency` with an internal shared-secret header (`X-Demo-Secret`). The latency is applied in-memory with no PM2 restart — effect is instant. The state resets to the `.env` baseline value on the next server restart. Cron output is appended to `~/logs/careconnect/anomaly.log` on VM5.
+
+**What ThousandEyes will see:**
+
+During the 10:00–10:15 window, all three bandwidth probe tests, the WADO image retrieval path, and any active transaction tests will show elevated response times and degraded throughput. The three probe tiers (`/probe/small`, `/probe/medium`, `/probe/large`) show how the anomaly scales across object sizes — a 1 500 ms base delay has a bigger relative impact on a 200 KB fetch than on a 20 MB transfer, which maps directly to a radiologist's experience loading individual DICOM slices.
+
+### ThousandEyes bandwidth probes
+
+Three unauthenticated endpoints expose fixed-size incompressible payloads sized to match real DICOM object classes. Configure each as a separate **HTTP Server** test in ThousandEyes to build a responsiveness curve across object sizes — this shows how WAN degradation scales with transfer size, not just connection latency.
+
+| Endpoint | Payload | DICOM analogue |
+|----------|---------|----------------|
+| `/probe/small` | ~200 KB | Scout / localizer image |
+| `/probe/medium` | ~2 MB | Axial CT slice (512×512 16-bit uncompressed) |
+| `/probe/large` | ~20 MB | Multi-frame CT or thick MR slab |
+
+**Design notes:**
+- Payloads are generated with `crypto.randomBytes()` at server startup — incompressible so HTTP gzip/deflate cannot skew transfer measurements.
+- `Cache-Control: no-store` is set on every response, preventing proxies or the ThousandEyes agent from serving cached bytes.
+- `IMAGE_LATENCY_MS` applies to all three probes (same as `/wado`), so a simulated WAN degradation shows the full impact across object sizes simultaneously.
+- Each response includes `X-Probe-Bytes` and `X-Probe-Label` headers for easy verification.
+
+**Test from curl:**
+
+```bash
+# Individual tests — one per size tier
+curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed_download}B/s\n" \
+     http://pacs.pseudo-co.com:3021/probe/small
+
+curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed_download}B/s\n" \
+     http://pacs.pseudo-co.com:3021/probe/medium
+
+curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed_download}B/s\n" \
+     http://pacs.pseudo-co.com:3021/probe/large
+```
+
+**Suggested ThousandEyes HTTP test config for each probe:**
+- Test type: HTTP Server
+- URL: `http://<PACS_HOST>:3021/probe/<size>`
+- Method: GET
+- Alert on: response time > threshold, throughput < threshold
+- Run from: the ThousandEyes Enterprise Agent co-located with (or near) the radiologist workstation
 
 ---
 
@@ -471,7 +550,7 @@ This SSHes to VM5, runs `05-setup-otel-collector.sh pacs`, writes the PACS-speci
 |--------|--------|--------------------|
 | APM traces | PACS Node.js → OTLP gRPC :4317 → collector | Splunk O11y Cloud APM — `careconnect-pacs` service |
 | Host metrics | OTel `hostmetrics` receiver on VM5 | Splunk Infrastructure Monitoring |
-| PACS server logs | Winston JSON → `/var/log/careconnect/pacs-out.log` → `file_log` receiver | Splunk Platform via HEC — `sourcetype: careconnect:json` |
+| PACS server logs | Winston JSON → `~/logs/careconnect/pacs-out.log` → `file_log` receiver | Splunk Platform via HEC — `sourcetype: careconnect:json` |
 | RUM | `@splunk/otel-web` in Vite bundle | Splunk RUM — `careconnect-pacs-viewer` application |
 
 The PACS `careconnect-pacs` APM service will appear in the Splunk service map as a separate node. WADO image-delivery spans are tagged with `pacs.endpoint=wado` and worklist calls with `pacs.endpoint=worklist`, enabling per-endpoint latency breakdowns — useful when demonstrating ThousandEyes WAN degradation alongside Splunk APM.
@@ -750,7 +829,7 @@ await driver.wait(until.elementLocated(By.css('[role="dialog"]')), 3000);
 | RUM — PACS viewer | Splunk RUM JS in Vite PACS viewer bundle | `careconnect-pacs-viewer` | Splunk RUM → Session Explorer |
 | Infrastructure | OTel Collector host metrics (VM1–VM3 + VM5) | — | Splunk Infrastructure Monitoring |
 | Logs — EHR | Winston JSON → OTel Collector → Splunk Platform HEC | — | Splunk Log Observer |
-| Logs — PACS | Winston JSON → `/var/log/careconnect/pacs-*.log` → OTel Collector → HEC | — | Splunk Log Observer |
+| Logs — PACS | Winston JSON → `~/logs/careconnect/pacs-*.log` → OTel Collector → HEC | — | Splunk Log Observer |
 
 Filter RUM sessions by portal:
 - `app.name = "CareConnect Clinical"` — clinical portal traffic

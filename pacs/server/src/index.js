@@ -3,6 +3,7 @@
 require('dotenv').config();
 require('./tracing'); // Splunk APM — must load before express
 
+const crypto  = require('crypto');
 const express = require('express');
 const morgan  = require('morgan');
 const cors = require('cors');
@@ -17,10 +18,24 @@ const PORT = parseInt(process.env.PORT || '3021', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'pacs-demo-secret-change-me';
 const STUDIES_DIR = path.resolve(process.env.STUDIES_DIR || './studies');
 
-// Simulated retrieval latency for ThousandEyes demo — raise via env to show
-// how a degraded WAN path impacts radiologist image load times.
-const IMAGE_LATENCY_MS = parseInt(process.env.IMAGE_LATENCY_MS || '0', 10);
-const IMAGE_LATENCY_JITTER_MS = parseInt(process.env.IMAGE_LATENCY_JITTER_MS || '0', 10);
+// Simulated retrieval latency for ThousandEyes demo.
+// Mutable so the scheduled cron anomaly and the latency API can update without
+// a PM2 restart.  Initialised from .env; reset to 0 on server restart.
+let imageLatencyMs     = parseInt(process.env.IMAGE_LATENCY_MS        || '0', 10);
+let imageLatencyJitterMs = parseInt(process.env.IMAGE_LATENCY_JITTER_MS || '0', 10);
+
+// ── Bandwidth probe payloads — generated once at startup ─────────────────────
+// crypto.randomBytes produces incompressible data so gzip/deflate can't skew
+// the transfer measurements.  Sizes model real DICOM object classes:
+//   small  ~200 KB  — scout / localizer image
+//   medium  ~2 MB   — typical axial CT slice (uncompressed 512×512 16-bit)
+//   large  ~20 MB   — multi-frame CT or thick MR slab
+const PROBE = {
+  small:  { size: 200  * 1024,        label: 'scout-localizer'   },
+  medium: { size: 2    * 1024 * 1024, label: 'ct-axial-slice'    },
+  large:  { size: 20   * 1024 * 1024, label: 'multiframe-volume' },
+};
+for (const p of Object.values(PROBE)) p.buf = crypto.randomBytes(p.size);
 
 // ── Demo users ────────────────────────────────────────────────────────────────
 const USERS = {
@@ -76,9 +91,9 @@ function authenticate(req, res, next) {
 }
 
 function simulateLatency() {
-  if (!IMAGE_LATENCY_MS) return Promise.resolve();
-  const jitter = IMAGE_LATENCY_JITTER_MS ? Math.floor(Math.random() * IMAGE_LATENCY_JITTER_MS) : 0;
-  return new Promise(r => setTimeout(r, IMAGE_LATENCY_MS + jitter));
+  if (!imageLatencyMs) return Promise.resolve();
+  const jitter = imageLatencyJitterMs ? Math.floor(Math.random() * imageLatencyJitterMs) : 0;
+  return new Promise(r => setTimeout(r, imageLatencyMs + jitter));
 }
 
 // ── Health check — ThousandEyes HTTP monitor target ──────────────────────────
@@ -96,8 +111,8 @@ app.get('/health', (_req, res) => {
       seedOnly: studies.filter(s => !s.hasImages).length,
     },
     latencySimulation: {
-      imageLatencyMs: IMAGE_LATENCY_MS,
-      jitterMs: IMAGE_LATENCY_JITTER_MS,
+      imageLatencyMs,
+      jitterMs: imageLatencyJitterMs,
     },
     studiesDir: STUDIES_DIR,
   });
@@ -107,6 +122,34 @@ app.get('/health', (_req, res) => {
 app.get('/ping', (_req, res) => {
   res.json({ pong: true, ts: Date.now(), service: 'careconnect-pacs' });
 });
+
+// ── Bandwidth probes — ThousandEyes responsiveness curve across object sizes ──
+// One endpoint per size tier; each returns a fixed-size incompressible payload
+// so ThousandEyes (and curl) measure raw transfer throughput, not logic latency.
+// Unauthenticated.  Latency simulation applies so degraded-path tests show the
+// full impact across object sizes.
+//
+// curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed_download}B/s\n" \
+//      http://pacs.pseudo-co.com:3021/probe/small
+// curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed_download}B/s\n" \
+//      http://pacs.pseudo-co.com:3021/probe/medium
+// curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed_download}B/s\n" \
+//      http://pacs.pseudo-co.com:3021/probe/large
+for (const [name, p] of Object.entries(PROBE)) {
+  app.get(`/probe/${name}`, async (_req, res) => {
+    await simulateLatency();
+    res.set({
+      'Content-Type':        'application/octet-stream',
+      'Content-Length':      p.buf.length,
+      'Content-Disposition': `attachment; filename="pacs-probe-${p.label}.bin"`,
+      'Cache-Control':       'no-store',
+      'Timing-Allow-Origin': '*',
+      'X-Probe-Label':       p.label,
+      'X-Probe-Bytes':       String(p.buf.length),
+    });
+    res.end(p.buf);
+  });
+}
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 app.post('/api/auth/login', (req, res) => {
@@ -204,22 +247,39 @@ app.get('/api/studies/:studyUID/series/:seriesUID/instances', authenticate, (req
 // ── Latency status — viewer polls this to show the demo banner ───────────────
 app.get('/api/demo/latency', (_req, res) => {
   res.json({
-    active: IMAGE_LATENCY_MS > 0,
-    imageLatencyMs: IMAGE_LATENCY_MS,
-    jitterMs: IMAGE_LATENCY_JITTER_MS,
+    active: imageLatencyMs > 0,
+    imageLatencyMs,
+    jitterMs: imageLatencyJitterMs,
   });
 });
 
-// ── Latency control — adjust simulation live during ThousandEyes demo ─────────
-// POST { "latencyMs": 1500, "jitterMs": 300 } to simulate a degraded WAN path
-app.post('/api/demo/latency', authenticate, (req, res) => {
+// ── Latency control — applied immediately in-memory (no restart required) ────
+// Accepts either a radiologist JWT or the X-Demo-Secret shared-secret header so
+// the on-VM cron script can call it without a login flow.
+// POST { "latencyMs": 1500, "jitterMs": 300 }
+app.post('/api/demo/latency', (req, res) => {
+  const secret = req.headers['x-demo-secret'];
+  if (secret !== JWT_SECRET) {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
+    try { jwt.verify(auth.slice(7), JWT_SECRET); }
+    catch { return res.status(401).json({ error: 'Invalid or expired token' }); }
+  }
+
   const { latencyMs, jitterMs } = req.body ?? {};
-  // Note: env vars can't be changed at runtime; restart with new values.
+  if (latencyMs !== undefined) imageLatencyMs      = Math.max(0, parseInt(latencyMs,  10) || 0);
+  if (jitterMs  !== undefined) imageLatencyJitterMs = Math.max(0, parseInt(jitterMs,  10) || 0);
+
+  const active = imageLatencyMs > 0;
+  const source = secret === JWT_SECRET ? 'cron' : 'api';
+  logger.info('Latency simulation updated', { meta: { imageLatencyMs, imageLatencyJitterMs, active, source } });
   res.json({
-    message: 'To apply, restart the server with the env vars below',
-    command: `IMAGE_LATENCY_MS=${latencyMs ?? 0} IMAGE_LATENCY_JITTER_MS=${jitterMs ?? 0} npm start`,
-    currentImageLatencyMs: IMAGE_LATENCY_MS,
-    currentJitterMs: IMAGE_LATENCY_JITTER_MS,
+    message: active
+      ? `Latency simulation enabled: ${imageLatencyMs}ms + ${imageLatencyJitterMs}ms jitter`
+      : 'Latency simulation disabled',
+    active,
+    imageLatencyMs,
+    jitterMs: imageLatencyJitterMs,
   });
 });
 
@@ -282,24 +342,25 @@ async function main() {
         studies: studies.length,
         withImages,
         seedOnly: studies.length - withImages,
-        imageLatencyMs: IMAGE_LATENCY_MS,
-        jitterMs: IMAGE_LATENCY_JITTER_MS,
+        imageLatencyMs,
+        jitterMs: imageLatencyJitterMs,
       },
     });
     console.log('\n  CareConnect PACS Server');
     console.log(`  Listening:  http://localhost:${PORT}`);
     console.log(`  Health:     http://localhost:${PORT}/health`);
     console.log(`  Worklist:   http://localhost:${PORT}/api/worklist`);
+    console.log(`  Probes:     /probe/small (200 KB)  /probe/medium (2 MB)  /probe/large (20 MB)`);
     console.log(`  Studies:    ${studies.length} total (${withImages} with DICOM files, ${studies.length - withImages} seed-only)`);
     if (withImages === 0) {
       console.log('\n  No DICOM images found. Download sample images:');
       console.log('    cd pacs/server && npm run download\n');
     }
-    if (IMAGE_LATENCY_MS > 0) {
+    if (imageLatencyMs > 0) {
       logger.warn('Image latency simulation active', {
-        meta: { imageLatencyMs: IMAGE_LATENCY_MS, jitterMs: IMAGE_LATENCY_JITTER_MS },
+        meta: { imageLatencyMs, jitterMs: imageLatencyJitterMs },
       });
-      console.log(`\n  [ThousandEyes demo] Simulating ${IMAGE_LATENCY_MS}ms latency + ${IMAGE_LATENCY_JITTER_MS}ms jitter on image retrieval`);
+      console.log(`\n  [ThousandEyes demo] Simulating ${imageLatencyMs}ms latency + ${imageLatencyJitterMs}ms jitter on image retrieval`);
     }
   });
 }

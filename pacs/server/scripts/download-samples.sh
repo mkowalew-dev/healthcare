@@ -107,10 +107,95 @@ download_series() {
 
 OHIF_API="https://api.github.com/repos/OHIF/viewer-testdata/contents/dcm"
 
+# Download a study ZIP from a direct URL, extract it, and ensure every
+# extracted file has a .dcm extension.
+# Usage: download_zip_series <label> <download-url> <dest-dir>
+download_zip_series() {
+  local label="$1"
+  local download_url="$2"
+  local dest_dir="$3"
+
+  mkdir -p "$dest_dir"
+
+  echo ""
+  echo "Downloading ${label}..."
+
+  # Skip entirely if the directory already has files from a previous run.
+  local existing
+  existing=$(find "$dest_dir" -name "*.dcm" 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$existing" -gt 0 ]]; then
+    ok "${label}: ${existing} file(s) already present — skipping download"
+    return 0
+  fi
+
+  local tmp_zip
+  tmp_zip=$(mktemp /tmp/dicomlibrary_XXXXXX.zip)
+
+  if ! curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 \
+       -o "$tmp_zip" "$download_url" 2>/dev/null; then
+    rm -f "$tmp_zip"
+    fail "${label}: download failed — check your internet connection"
+    warn "  Tried: ${download_url}"
+    warn "  To add manually: download the ZIP and run:  unzip <file>.zip -d ${dest_dir}"
+    return 0
+  fi
+
+  # Verify the downloaded file is actually a ZIP archive.
+  if ! file "$tmp_zip" 2>/dev/null | grep -qi "zip"; then
+    rm -f "$tmp_zip"
+    fail "${label}: downloaded file is not a ZIP archive — the URL or token may have expired"
+    warn "  Tried: ${download_url}"
+    warn "  To add manually: download the ZIP and run:  unzip <file>.zip -d ${dest_dir}"
+    return 0
+  fi
+
+  local tmp_extract
+  tmp_extract=$(mktemp -d /tmp/dicomlibrary_extract_XXXXXX)
+
+  if ! unzip -q "$tmp_zip" -d "$tmp_extract" 2>/dev/null; then
+    rm -rf "$tmp_zip" "$tmp_extract"
+    fail "${label}: failed to unzip archive"
+    return 0
+  fi
+
+  rm -f "$tmp_zip"
+
+  # Move all DICOM files into dest_dir, adding .dcm extension when missing.
+  local count=0
+  while IFS= read -r -d '' src_file; do
+    local basename
+    basename=$(basename "$src_file")
+    local dest_file="${dest_dir}/${basename}"
+    # Add .dcm extension if not already present (some archives omit it).
+    [[ "$dest_file" != *.dcm && "$dest_file" != *.DCM ]] && dest_file="${dest_file}.dcm"
+    cp "$src_file" "$dest_file"
+    (( count++ )) || true
+  done < <(find "$tmp_extract" -type f \
+    \( -iname "*.dcm" -o -iname "*.ima" -o -iname "*.dicom" \) -print0)
+
+  # Fallback: treat every regular file as a DICOM if no recognised extension found.
+  if [[ "$count" -eq 0 ]]; then
+    while IFS= read -r -d '' src_file; do
+      local basename
+      basename=$(basename "$src_file")
+      cp "$src_file" "${dest_dir}/${basename}.dcm"
+      (( count++ )) || true
+    done < <(find "$tmp_extract" -type f -print0)
+  fi
+
+  rm -rf "$tmp_extract"
+
+  if [[ "$count" -gt 0 ]]; then
+    ok "${label}: ${count} file(s) ready"
+  else
+    warn "${label}: ZIP was empty or contained no DICOM files"
+  fi
+}
+
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo "  CareConnect PACS — Sample Image Downloader"
-echo "  Source: OHIF viewer-testdata (MIT licence)"
+echo "  Source: OHIF viewer-testdata (MIT licence) + DICOM Library"
 echo "  Output: ${OUTPUT_DIR}"
 echo "═══════════════════════════════════════════════════════════════"
 
@@ -127,6 +212,12 @@ download_series \
   "${OHIF_API}/Juno" \
   "${OUTPUT_DIR}/ct_chest" \
   60
+
+# DICOM Library study — 2025-07-04 upload (UID: 1.3.6.1.4.1.44316.6.102.1…)
+download_zip_series \
+  "DICOM Library study (20250704)" \
+  "https://www.dicomlibrary.com?requestType=WADO&studyUID=1.3.6.1.4.1.44316.6.102.1.20250704114423696.61158672119535771932&manage=daae3df7f522b56724aed7e3e544c0fe&token=5107761f537267518d056cad3f37e5197494329fe32c323879" \
+  "${OUTPUT_DIR}/dicomlibrary_20250704"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 TOTAL=$(find "${OUTPUT_DIR}" -name "*.dcm" 2>/dev/null | wc -l | tr -d ' ')

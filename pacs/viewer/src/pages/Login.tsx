@@ -7,7 +7,7 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email] = useState('dr.chen@careconnect.demo');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('Demo123!');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
