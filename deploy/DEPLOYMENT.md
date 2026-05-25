@@ -565,6 +565,23 @@ SPLUNK_RUM_TOKEN=<your-rum-ingest-token>    # type: RUM (separate from APM inges
 
 ## Ongoing Operations
 
+### Apply DB schema changes to a live database
+
+New indexes and schema changes in `backend/src/db/schema.sql` are applied automatically on fresh installs (`init db`). For a **running database**, apply them directly:
+
+```bash
+# Connect to the DB VM
+ssh -i ~/.ssh/aws-key ubuntu@<DB_PUBLIC_IP>
+
+# Apply each new index individually — CONCURRENTLY avoids table locks
+psql postgresql://<DB_USER>:<DB_PASSWORD>@localhost:5432/<DB_NAME> \
+  -c 'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_clinical_notes_patient ON clinical_notes(patient_id);' \
+  -c 'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_patients_user ON patients(user_id);' \
+  -c 'CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_providers_user ON providers(user_id);'
+```
+
+> **Why separate `-c` flags?** `CREATE INDEX CONCURRENTLY` cannot run inside a transaction block. Each `-c` argument runs as its own independent statement; passing multiple statements in one `-c` string wraps them in a transaction.
+
 ### Deploy code changes
 
 ```bash
@@ -1138,6 +1155,7 @@ If this shows `WARNING: Extension service worker not detected`, check:
 | Patient redirected in a loop | `VITE_PATIENT_HOST` not set at build time | Re-run `update frontend` with `PATIENT_HOST` set in config.env |
 | Provider sees MyChart on clinical portal | Nginx `server_name` mismatch | Check `/etc/nginx/sites-available/careconnect` on VM1 — confirm `CLINICAL_HOST` and `PATIENT_HOST` match your DNS |
 | `patient.html` 404 | React build didn't produce multi-page output | Confirm `vite.config.ts` has `rollupOptions.input` with both entries; re-run `update frontend` |
+| `gzip` directive is duplicate in nginx config | Main `nginx.conf` already has `gzip on` in its `http {}` block | Gzip settings must go in `/etc/nginx/conf.d/gzip.conf`, not in the `sites-available` file; `04-update.sh` writes this automatically |
 | PM2 processes keep restarting | App crash or bad `.env` | `ssh ubuntu@<API_PUBLIC_IP> "journalctl -u careconnect-api -n 100"` |
 | `careconnect-bff` not starting | Missing `API_URL` in BFF `.env` | Re-run `bash deploy/aws-deploy.sh update bff` |
 | ePrescription `integration.latencyMs` is 0 | VM4 not reachable from VM2 | Check `SURESCRIPTS_URL` in VM2 `.env`; verify SG allows VM2 → VM4:3002 |

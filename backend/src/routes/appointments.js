@@ -8,22 +8,19 @@ const router = express.Router();
 // GET /api/appointments - list appointments
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { status, upcoming, patientId, providerId } = req.query;
+    const { status, upcoming, patientId, providerId, limit, offset } = req.query;
     let whereClause = '1=1';
     const params = [];
     let paramIdx = 1;
 
     if (req.user.role === 'patient') {
-      // Patient sees own appointments
-      const ptResult = await pool.query('SELECT id FROM patients WHERE user_id = $1', [req.user.id]);
-      if (!ptResult.rows[0]) return res.json([]);
-      whereClause += ` AND a.patient_id = $${paramIdx++}`;
-      params.push(ptResult.rows[0].id);
+      // Filter via the already-joined patients table — avoids a separate lookup query
+      whereClause += ` AND p.user_id = $${paramIdx++}`;
+      params.push(req.user.id);
     } else if (req.user.role === 'provider') {
-      const pvResult = await pool.query('SELECT id FROM providers WHERE user_id = $1', [req.user.id]);
-      if (!pvResult.rows[0]) return res.json([]);
-      whereClause += ` AND a.provider_id = $${paramIdx++}`;
-      params.push(pvResult.rows[0].id);
+      // Filter via the already-joined providers table — avoids a separate lookup query
+      whereClause += ` AND pr.user_id = $${paramIdx++}`;
+      params.push(req.user.id);
     } else if (patientId) {
       whereClause += ` AND a.patient_id = $${paramIdx++}`;
       params.push(patientId);
@@ -38,6 +35,16 @@ router.get('/', authenticate, async (req, res) => {
       whereClause += ` AND a.scheduled_at >= NOW()`;
     }
 
+    let paginationClause = '';
+    if (limit) {
+      paginationClause += ` LIMIT $${paramIdx++}`;
+      params.push(parseInt(limit, 10));
+      if (offset) {
+        paginationClause += ` OFFSET $${paramIdx++}`;
+        params.push(parseInt(offset, 10));
+      }
+    }
+
     const result = await pool.query(`
       SELECT
         a.*,
@@ -49,7 +56,7 @@ router.get('/', authenticate, async (req, res) => {
       JOIN providers pr ON a.provider_id = pr.id
       LEFT JOIN departments d ON pr.department_id = d.id
       WHERE ${whereClause}
-      ORDER BY a.scheduled_at DESC
+      ORDER BY a.scheduled_at DESC${paginationClause}
     `, params);
 
     res.json(result.rows);

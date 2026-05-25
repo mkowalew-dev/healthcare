@@ -24,7 +24,7 @@ BFF_DIR="/opt/careconnect/bff"
 SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN:-CHANGE_THIS_RUM_TOKEN}"
 SPLUNK_REALM="${SPLUNK_REALM:-us1}"
 APP_ENV="${APP_ENV:-production}"
-APP_VERSION="${APP_VERSION:-1.0.0}"
+APP_VERSION="${APP_VERSION:-2.0.1}"
 
 # Portal hostnames — baked into both React bundles at build time for
 # cross-portal redirect logic. Also used to regenerate the Nginx config.
@@ -236,6 +236,16 @@ ECOEOF
     if [[ -n "$_api_alb" || -n "$_api_ips" ]]; then
       _clinical="${CLINICAL_HOST:-${FRONTEND_HOST:-careconnect.example.com}}"
       _patient="${PATIENT_HOST:-mychart.example.com}"
+      # Write gzip settings to conf.d so they live in the http{} block
+      # without conflicting with the base gzip directive in nginx.conf.
+      cat > /etc/nginx/conf.d/gzip.conf <<'GZIPEOF'
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 6;
+gzip_min_length 1024;
+gzip_types text/css text/plain application/javascript application/json application/xml image/svg+xml;
+GZIPEOF
+
       cat > /etc/nginx/sites-available/careconnect <<NGINXEOF
 upstream api_cluster {
 ${UPSTREAM_SERVERS}    keepalive 32;

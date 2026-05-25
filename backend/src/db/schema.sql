@@ -287,3 +287,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages(recipient_id);
 CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_vital_signs_patient ON vital_signs(patient_id);
 CREATE INDEX IF NOT EXISTS idx_diagnoses_patient ON diagnoses(patient_id);
+CREATE INDEX IF NOT EXISTS idx_clinical_notes_patient ON clinical_notes(patient_id);
+CREATE INDEX IF NOT EXISTS idx_patients_user ON patients(user_id);
+CREATE INDEX IF NOT EXISTS idx_providers_user ON providers(user_id);

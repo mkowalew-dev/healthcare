@@ -1,22 +1,29 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import Login from './pages/Login';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 
-// Provider pages
-import ProviderDashboard from './pages/provider/Dashboard';
-import PatientList from './pages/provider/PatientList';
-import PatientChart from './pages/provider/PatientChart';
-import ProviderSchedule from './pages/provider/Schedule';
-import ProviderMessages from './pages/provider/Messages';
-import Prescribe from './pages/provider/Prescribe';
+// Provider pages — lazy loaded so they don't inflate the initial bundle
+const ProviderDashboard = lazy(() => import('./pages/provider/Dashboard'));
+const PatientList       = lazy(() => import('./pages/provider/PatientList'));
+const PatientChart      = lazy(() => import('./pages/provider/PatientChart'));
+const ProviderSchedule  = lazy(() => import('./pages/provider/Schedule'));
+const ProviderMessages  = lazy(() => import('./pages/provider/Messages'));
+const Prescribe         = lazy(() => import('./pages/provider/Prescribe'));
 
-// Admin pages
-import AdminDashboard from './pages/admin/Dashboard';
-import UserManagement from './pages/admin/UserManagement';
-import Departments from './pages/admin/Departments';
-import Integrations from './pages/admin/Integrations';
+// Admin pages — lazy loaded
+const AdminDashboard  = lazy(() => import('./pages/admin/Dashboard'));
+const UserManagement  = lazy(() => import('./pages/admin/UserManagement'));
+const Departments     = lazy(() => import('./pages/admin/Departments'));
+const Integrations    = lazy(() => import('./pages/admin/Integrations'));
+
+const PageFallback = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <LoadingSpinner size="lg" />
+  </div>
+);
 
 const PATIENT_HOST = import.meta.env.VITE_PATIENT_HOST;
 
@@ -59,39 +66,41 @@ function RootRedirect() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/" element={<RootRedirect />} />
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/" element={<RootRedirect />} />
 
-      {/* Provider routes */}
-      <Route
-        path="/provider"
-        element={<ProtectedRoute roles={['provider']}><Layout /></ProtectedRoute>}
-      >
-        <Route path="dashboard" element={<ProviderDashboard />} />
-        <Route path="patients" element={<PatientList />} />
-        <Route path="patients/:id" element={<PatientChart />} />
-        <Route path="schedule" element={<ProviderSchedule />} />
-        <Route path="messages" element={<ProviderMessages />} />
-        <Route path="prescribe" element={<Prescribe />} />
-        <Route index element={<Navigate to="dashboard" replace />} />
-      </Route>
+        {/* Provider routes */}
+        <Route
+          path="/provider"
+          element={<ProtectedRoute roles={['provider']}><Layout /></ProtectedRoute>}
+        >
+          <Route path="dashboard" element={<ProviderDashboard />} />
+          <Route path="patients" element={<PatientList />} />
+          <Route path="patients/:id" element={<PatientChart />} />
+          <Route path="schedule" element={<ProviderSchedule />} />
+          <Route path="messages" element={<ProviderMessages />} />
+          <Route path="prescribe" element={<Prescribe />} />
+          <Route index element={<Navigate to="dashboard" replace />} />
+        </Route>
 
-      {/* Admin routes */}
-      <Route
-        path="/admin"
-        element={<ProtectedRoute roles={['admin']}><Layout /></ProtectedRoute>}
-      >
-        <Route path="dashboard" element={<AdminDashboard />} />
-        <Route path="users" element={<UserManagement />} />
-        <Route path="departments" element={<Departments />} />
-        <Route path="integrations" element={<Integrations />} />
-        <Route index element={<Navigate to="dashboard" replace />} />
-      </Route>
+        {/* Admin routes */}
+        <Route
+          path="/admin"
+          element={<ProtectedRoute roles={['admin']}><Layout /></ProtectedRoute>}
+        >
+          <Route path="dashboard" element={<AdminDashboard />} />
+          <Route path="users" element={<UserManagement />} />
+          <Route path="departments" element={<Departments />} />
+          <Route path="integrations" element={<Integrations />} />
+          <Route index element={<Navigate to="dashboard" replace />} />
+        </Route>
 
-      {/* Catch all */}
-      <Route path="*" element={<RootRedirect />} />
-    </Routes>
+        {/* Catch all */}
+        <Route path="*" element={<RootRedirect />} />
+      </Routes>
+    </Suspense>
   );
 }
 

@@ -15,11 +15,8 @@ router.get('/lis-orders', authenticate, authorize('provider', 'admin'), async (r
     let idx = 1;
 
     if (req.user.role === 'provider') {
-      const pv = await pool.query('SELECT id FROM providers WHERE user_id = $1', [req.user.id]);
-      if (pv.rows[0]) {
-        whereClause += ` AND lo.provider_id = $${idx++}`;
-        params.push(pv.rows[0].id);
-      }
+      whereClause += ` AND lo.provider_id = (SELECT id FROM providers WHERE user_id = $${idx++})`;
+      params.push(req.user.id);
     }
     if (patientId) {
       whereClause += ` AND lo.patient_id = $${idx++}`;
@@ -72,10 +69,8 @@ router.get('/', authenticate, async (req, res) => {
     let idx = 1;
 
     if (req.user.role === 'patient') {
-      const pt = await pool.query('SELECT id FROM patients WHERE user_id = $1', [req.user.id]);
-      if (!pt.rows[0]) return res.json([]);
-      whereClause += ` AND lr.patient_id = $${idx++}`;
-      params.push(pt.rows[0].id);
+      whereClause += ` AND lr.patient_id = (SELECT id FROM patients WHERE user_id = $${idx++})`;
+      params.push(req.user.id);
     } else if (patientId) {
       whereClause += ` AND lr.patient_id = $${idx++}`;
       params.push(patientId);

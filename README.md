@@ -1,17 +1,18 @@
 # CareConnect EHR
 
-An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
+**v2.0.1** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Tailwind CSS (Cisco theme) |
-| Backend | Node.js + Express |
-| Database | PostgreSQL 15 |
+| Backend | Node.js + Express (11 PM2 domain services) |
+| Database | PostgreSQL 17 |
 | Auth | JWT (12h expiry) |
-| Charts | Recharts |
+| Charts | Recharts (lazy-loaded) |
 | Tracing | OpenTelemetry + Splunk APM |
+| RUM | @splunk/otel-web (clinical + patient portals) |
 
 ## Demo Credentials
 
@@ -153,6 +154,30 @@ See [`deploy/DEPLOYMENT.md` → Endpoint Synthetic Tests](deploy/DEPLOYMENT.md) 
 
 ---
 
+## Performance Characteristics
+
+The API and frontend are optimized for realistic demo latency profiles:
+
+**API query optimization**
+- Patient/provider role lookups use a single JOIN or inline subquery rather than a pre-fetch — eliminates one DB round-trip on every authenticated list call
+- `GET /api/appointments` supports `?limit=N&offset=N` for pagination
+- Indexes on `clinical_notes(patient_id)`, `patients(user_id)`, and `providers(user_id)` ensure all role-based WHERE clauses hit indexes
+
+**Frontend bundle splitting**
+The React build produces four cacheable vendor chunks plus per-route async chunks:
+
+| Chunk | Contents | Load behaviour |
+|-------|----------|----------------|
+| `vendor-react` | React, ReactDOM, react-router-dom | Always — initial load |
+| `vendor-otel` | @splunk/otel-web, @opentelemetry/api | Always — RUM must instrument the full lifecycle |
+| `vendor-utils` | axios, date-fns, lucide-react, clsx, react-hook-form | Always — shared utilities |
+| `vendor-charts` | recharts | On-demand — deferred until a chart page is visited |
+| Per-route chunks | Each page component | On-demand — loaded on first navigation to that route |
+
+**Nginx gzip compression** (`/etc/nginx/conf.d/gzip.conf`) is applied at `comp_level 6` on JS, CSS, JSON, and SVG — reducing the initial JS payload from ~370 kB to ~130 kB over the wire.
+
+---
+
 ## API Endpoints
 
 ```
@@ -226,6 +251,12 @@ The database is pre-loaded with:
 - **2 clinical notes** with SOAP format
 - **7 vital sign records** with trending data
 - **Allergies, diagnoses, and problem lists** for all patients
+
+---
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for full release history.
 
 ---
 

@@ -29,6 +29,14 @@ export default defineConfig({
         main:    resolve(__dirname, 'index.html'),    // CareConnect clinical portal
         patient: resolve(__dirname, 'patient.html'),  // MyChart patient portal
       },
+      output: {
+        manualChunks: {
+          'vendor-react':  ['react', 'react-dom', 'react-router-dom'],
+          'vendor-charts': ['recharts'],
+          'vendor-otel':   ['@splunk/otel-web', '@opentelemetry/api'],
+          'vendor-utils':  ['axios', 'date-fns', 'lucide-react', 'clsx', 'react-hook-form'],
+        },
+      },
     },
   },
 })
