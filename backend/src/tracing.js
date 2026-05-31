@@ -25,6 +25,7 @@ const ACCESS_TOKEN = process.env.SPLUNK_ACCESS_TOKEN;
 // Without this, Splunk falls back to net.peer.name (127.0.0.1) and shows anonymous
 // IP nodes in the service map instead of named service nodes.
 const LOOPBACK_SERVICES = {
+  3002: 'careconnect-mock-services',
   3011: 'careconnect-patients',
   3012: 'careconnect-labs',
   3013: 'careconnect-rx',
