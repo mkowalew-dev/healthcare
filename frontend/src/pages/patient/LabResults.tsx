@@ -54,15 +54,15 @@ export default function LabResults() {
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="stat-card">
+        <div className="stat-card" data-testid="stat-total-results">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Total Results</div>
           <div className="text-2xl font-bold text-gray-900">{labs.filter(l => l.status !== 'pending').length}</div>
         </div>
-        <div className="stat-card border-l-4 border-l-cisco-orange">
+        <div className="stat-card border-l-4 border-l-cisco-orange" data-testid="stat-abnormal">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Abnormal</div>
           <div className="text-2xl font-bold text-cisco-orange">{abnormalCount}</div>
         </div>
-        <div className="stat-card border-l-4 border-l-gray-300">
+        <div className="stat-card border-l-4 border-l-gray-300" data-testid="stat-pending">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Pending</div>
           <div className="text-2xl font-bold text-gray-500">{pendingCount}</div>
         </div>
@@ -70,7 +70,7 @@ export default function LabResults() {
 
       {/* A1C Trend Chart */}
       {a1cTrend.length > 1 && (
-        <div className="card p-5">
+        <div className="card p-5" data-testid="card-a1c-trend">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp size={18} className="text-cisco-blue" />
             <h2 className="font-semibold text-gray-900">HbA1c Trend</h2>
@@ -106,7 +106,7 @@ export default function LabResults() {
 
       {/* Results grouped by panel */}
       {Object.entries(grouped).map(([panel, panelLabs]) => (
-        <div key={panel} className="card overflow-hidden">
+        <div key={panel} className="card overflow-hidden" data-testid={`card-panel-${panel.toLowerCase().replace(/\s+/g, '-')}`}>
           <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
             <FlaskConical size={15} className="text-cisco-blue" />
             <h3 className="font-semibold text-gray-800 text-sm">{panel}</h3>
@@ -184,7 +184,7 @@ export default function LabResults() {
       ))}
 
       {filtered.length === 0 && (
-        <div className="card p-12 text-center">
+        <div className="card p-12 text-center" data-testid="labs-empty-state">
           <FlaskConical size={40} className="text-gray-200 mx-auto mb-3" />
           <p className="text-gray-500 text-sm">No results found</p>
         </div>

@@ -68,7 +68,7 @@ export default function BillPay() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="stat-card border-l-4 border-l-cisco-orange">
+        <div className="stat-card border-l-4 border-l-cisco-orange" data-testid="stat-balance-due">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance Due</span>
             <DollarSign size={16} className="text-cisco-orange" />
@@ -76,7 +76,7 @@ export default function BillPay() {
           <div className="text-2xl font-bold text-gray-900">${Number(summary.total_owed).toFixed(2)}</div>
           <div className="text-xs text-gray-500">{summary.pending_count} statement(s)</div>
         </div>
-        <div className="stat-card border-l-4 border-l-cisco-red">
+        <div className="stat-card border-l-4 border-l-cisco-red" data-testid="stat-overdue">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Overdue</span>
             <AlertCircle size={16} className="text-cisco-red" />
@@ -84,7 +84,7 @@ export default function BillPay() {
           <div className="text-2xl font-bold text-gray-900">${Number(summary.overdue).toFixed(2)}</div>
           <div className="text-xs text-gray-500">Past due date</div>
         </div>
-        <div className="stat-card border-l-4 border-l-cisco-green">
+        <div className="stat-card border-l-4 border-l-cisco-green" data-testid="stat-paid-ytd">
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Paid This Year</span>
             <CheckCircle size={16} className="text-cisco-green" />
@@ -95,7 +95,7 @@ export default function BillPay() {
       </div>
 
       {/* Filter tabs */}
-      <div className="card">
+      <div className="card" data-testid="card-bills-list">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2 flex-wrap">
           <Filter size={15} className="text-gray-400" />
           {(['all', 'pending', 'overdue', 'paid'] as const).map(f => (
@@ -121,7 +121,7 @@ export default function BillPay() {
             filtered.map((bill) => {
               const remaining = Number(bill.patient_amount) - Number(bill.paid_amount);
               return (
-                <div key={bill.id} className="px-5 py-4 hover:bg-gray-50 transition-colors">
+                <div key={bill.id} className="px-5 py-4 hover:bg-gray-50 transition-colors" data-testid={`bill-row-${bill.id}`}>
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-start gap-3">

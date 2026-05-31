@@ -56,7 +56,7 @@ export default function Medications() {
 
       <div className="grid gap-4">
         {filtered.length === 0 ? (
-          <div className="card p-12 text-center">
+          <div className="card p-12 text-center" data-testid="medications-empty-state">
             <Pill size={40} className="text-gray-200 mx-auto mb-3" />
             <p className="text-gray-500 text-sm">No medications found</p>
           </div>

@@ -150,7 +150,7 @@ export default function Messages() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" style={{ height: '600px' }}>
         {/* Message list */}
-        <div className="card flex flex-col overflow-hidden">
+        <div className="card flex flex-col overflow-hidden" data-testid="card-message-list">
           <div className="flex border-b border-gray-100">
             {(['inbox', 'sent'] as const).map(t => (
               <button
@@ -208,7 +208,7 @@ export default function Messages() {
         </div>
 
         {/* Message detail */}
-        <div className="lg:col-span-2 card flex flex-col overflow-hidden">
+        <div className="lg:col-span-2 card flex flex-col overflow-hidden" data-testid="card-message-detail">
           {!selected ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-300">
               <MessageSquare size={48} className="mb-3" />

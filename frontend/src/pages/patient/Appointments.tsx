@@ -127,7 +127,7 @@ export default function Appointments() {
       {/* Appointments list */}
       <div className="space-y-3">
         {filtered.length === 0 ? (
-          <div className="card p-12 text-center">
+          <div className="card p-12 text-center" data-testid="appointments-empty-state">
             <Calendar size={40} className="text-gray-200 mx-auto mb-3" />
             <p className="text-gray-500 text-sm">No {tab} appointments</p>
             {tab === 'upcoming' && (

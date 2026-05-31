@@ -119,7 +119,7 @@ export default function PatientDashboard() {
         {/* Left column */}
         <div className="lg:col-span-2 space-y-6">
           {/* Upcoming Appointments */}
-          <div className="card">
+          <div className="card" data-testid="card-upcoming-appointments">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Calendar size={18} className="text-cisco-blue" />
@@ -169,7 +169,7 @@ export default function PatientDashboard() {
           </div>
 
           {/* Recent Lab Results */}
-          <div className="card">
+          <div className="card" data-testid="card-recent-labs">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FlaskConical size={18} className="text-cisco-blue" />
@@ -222,7 +222,7 @@ export default function PatientDashboard() {
         {/* Right column */}
         <div className="space-y-6">
           {/* Quick Actions */}
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-quick-actions">
             <h2 className="font-semibold text-gray-900 mb-3">Quick Actions</h2>
             <div className="space-y-2">
               {[
@@ -246,7 +246,7 @@ export default function PatientDashboard() {
           </div>
 
           {/* Billing Summary */}
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-billing-summary">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <CreditCard size={18} className="text-cisco-blue" />
@@ -278,7 +278,7 @@ export default function PatientDashboard() {
           </div>
 
           {/* Active Medications */}
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-active-medications">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Pill size={18} className="text-cisco-blue" />
