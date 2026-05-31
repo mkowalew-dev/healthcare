@@ -144,7 +144,7 @@ router.get('/:id/summary', authenticate, authorize('provider', 'admin'), async (
       pool.query('SELECT * FROM allergies WHERE patient_id = $1', [patientId]),
       pool.query('SELECT * FROM diagnoses WHERE patient_id = $1 AND status != $2 ORDER BY diagnosed_date DESC', [patientId, 'resolved']),
       pool.query('SELECT m.*, pr.first_name as pf, pr.last_name as pl FROM medications m LEFT JOIN providers pr ON m.provider_id = pr.id WHERE m.patient_id = $1 AND m.status = $2', [patientId, 'active']),
-      pool.query('SELECT lr.* FROM lab_results lr WHERE lr.patient_id = $1 ORDER BY lr.ordered_at DESC LIMIT 10', [patientId]),
+      pool.query('SELECT lr.*, pr.first_name as provider_first, pr.last_name as provider_last FROM lab_results lr LEFT JOIN providers pr ON lr.provider_id = pr.id WHERE lr.patient_id = $1 ORDER BY lr.ordered_at DESC LIMIT 10', [patientId]),
       pool.query(`SELECT a.*, pr.first_name as pf, pr.last_name as pl FROM appointments a JOIN providers pr ON a.provider_id = pr.id WHERE a.patient_id = $1 AND a.scheduled_at > NOW() ORDER BY a.scheduled_at LIMIT 3`, [patientId]),
       pool.query('SELECT cn.*, pr.first_name as pf, pr.last_name as pl FROM clinical_notes cn JOIN providers pr ON cn.provider_id = pr.id WHERE cn.patient_id = $1 ORDER BY cn.created_at DESC LIMIT 5', [patientId]),
       pool.query('SELECT * FROM vital_signs WHERE patient_id = $1 ORDER BY recorded_at DESC LIMIT 1', [patientId]),

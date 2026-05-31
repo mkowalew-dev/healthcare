@@ -9,7 +9,7 @@ import {
 import { Modal } from '../../components/ui/Modal';
 import {
   ArrowLeft, AlertTriangle, Pill, FlaskConical, Calendar,
-  FileText, Activity, Heart, Stethoscope, Plus, CheckCircle, Send,
+  FileText, Activity, Heart, Stethoscope, Plus, CheckCircle, Send, Loader2,
 } from 'lucide-react';
 
 const COMMON_MEDICATIONS = [
@@ -54,6 +54,9 @@ export default function PatientChart() {
   const [meds, setMeds] = useState<any[]>([]);
   const [appts, setAppts] = useState<any[]>([]);
   const [notes, setNotes] = useState<any[]>([]);
+  const [initialized, setInitialized] = useState(false);
+  const [loadedTabs, setLoadedTabs] = useState<Set<Tab>>(new Set(['summary', 'vitals'] as Tab[]));
+  const [tabLoading, setTabLoading] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [noteContent, setNoteContent] = useState('');
   const [savingNote, setSavingNote] = useState(false);
@@ -76,22 +79,40 @@ export default function PatientChart() {
   const [orderingLab, setOrderingLab] = useState(false);
   const [orderConfirmation, setOrderConfirmation] = useState<{ vendor: string; orderNumber: string; latencyMs: number } | null>(null);
 
+  // Single summary call replaces 5 parallel requests — chart renders after 1 round-trip
   useEffect(() => {
     if (!id) return;
-    Promise.all([
-      patientsApi.get(id),
-      labsApi.list({ patientId: id }),
-      medicationsApi.list({ patientId: id }),
-      appointmentsApi.list({ patientId: id } as any),
-      notesApi.list(id),
-    ]).then(([pt, lb, md, ap, nt]) => {
-      setPatient(pt.data);
-      setLabs(lb.data);
-      setMeds(md.data);
-      setAppts(ap.data);
-      setNotes(nt.data);
+    patientsApi.summary(id).then(res => {
+      const s = res.data;
+      setPatient({
+        ...s.patient,
+        allergies: s.allergies,
+        diagnoses: s.diagnoses,
+        recentVitals: s.lastVitals ? [s.lastVitals] : [],
+      });
+      setLabs(s.recentLabs ?? []);
+      setMeds(s.activeMedications ?? []);
+      setAppts(s.upcomingAppointments ?? []);
+      setNotes(s.recentNotes ?? []);
+      setInitialized(true);
     }).finally(() => setLoading(false));
   }, [id]);
+
+  // Lazy-load full tab data on first visit — summary provides enough for immediate render
+  useEffect(() => {
+    if (!initialized || loadedTabs.has(tab)) return;
+    setTabLoading(true);
+    const loaders: Partial<Record<Tab, () => Promise<void>>> = {
+      labs: async () => { const r = await labsApi.list({ patientId: id! }); setLabs(r.data); },
+      medications: async () => { const r = await medicationsApi.list({ patientId: id! }); setMeds(r.data); },
+      appointments: async () => { const r = await appointmentsApi.list({ patientId: id! } as any); setAppts(r.data); },
+      notes: async () => { const r = await notesApi.list(id!); setNotes(r.data); },
+    };
+    const load = loaders[tab];
+    (load ? load() : Promise.resolve())
+      .then(() => setLoadedTabs(prev => { const next = new Set(prev); next.add(tab); return next; }))
+      .finally(() => setTabLoading(false));
+  }, [tab, initialized, id]);
 
   const submitLabOrder = async () => {
     if (!orderForm.testName || !id) return;
@@ -364,6 +385,11 @@ export default function PatientChart() {
       {tab === 'labs' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
+            {tabLoading && !loadedTabs.has('labs') && (
+              <div className="flex items-center gap-2 text-xs text-gray-400">
+                <Loader2 size={13} className="animate-spin" /> Loading full results...
+              </div>
+            )}
             {orderConfirmation && (
               <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg" data-testid="order-confirmation-banner">
                 <CheckCircle size={15} className="flex-shrink-0" />
