@@ -6,8 +6,11 @@ import { Shield, Eye, EyeOff, ChevronRight } from 'lucide-react';
 
 // Detect which portal we're on at runtime using the baked-in hostname env var.
 const PATIENT_HOST = import.meta.env.VITE_PATIENT_HOST;
+const isAdminPath = window.location.pathname.startsWith('/admin');
 const currentPortal = PATIENT_HOST && window.location.hostname === PATIENT_HOST
   ? 'patient'
+  : isAdminPath
+  ? 'admin'
   : PATIENT_HOST
   ? 'clinical'
   : 'all';
@@ -24,6 +27,12 @@ const PORTAL_CONFIG = {
     subtitle: 'Clinical Workspace',
     hero: 'Enterprise Healthcare,\nReimagined.',
     heroSub: 'A comprehensive EHR system with clinical workflows, ePrescribing, and real-time observability powered by ThousandEyes and Splunk.',
+  },
+  admin: {
+    title: 'CareConnect',
+    subtitle: 'Admin Portal',
+    hero: 'System\nAdministration.',
+    heroSub: 'Manage users, monitor integrations, and view system-wide analytics across the CareConnect EHR platform.',
   },
   all: {
     title: 'CareConnect EHR',
@@ -52,7 +61,10 @@ function CiscoMark({ size = 40 }: { size?: number }) {
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email] = useState(currentPortal === 'patient' ? 'patient@demo.com' : 'provider@demo.com');
+  const defaultEmail = currentPortal === 'patient' ? 'patient@demo.com'
+    : currentPortal === 'admin' ? 'admin@demo.com'
+    : 'provider@demo.com';
+  const [email] = useState(defaultEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState('');

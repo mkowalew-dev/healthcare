@@ -46,7 +46,10 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
     );
   }
 
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    const loginPath = window.location.pathname.startsWith('/admin') ? '/admin/login' : '/login';
+    return <Navigate to={loginPath} replace />;
+  }
 
   if (roles && !roles.includes(user.role)) {
     if (user.role === 'patient' && redirectToPatientPortal()) return null;
@@ -69,6 +72,7 @@ function AppRoutes() {
     <Suspense fallback={<PageFallback />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/admin/login" element={<Login />} />
         <Route path="/" element={<RootRedirect />} />
 
         {/* Provider routes */}

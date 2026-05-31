@@ -58,7 +58,7 @@ export default function PatientDashboard() {
   return (
     <div className="space-y-6">
       {/* Welcome banner */}
-      <div className="bg-gradient-to-r from-cisco-dark-blue to-cisco-blue rounded-xl p-6 text-white">
+      <div className="bg-gradient-to-r from-cisco-dark-blue to-cisco-blue rounded-xl p-6 text-white" data-testid="dashboard-welcome-banner">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-white/70 text-sm">{today}</p>

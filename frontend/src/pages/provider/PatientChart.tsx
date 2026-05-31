@@ -194,7 +194,7 @@ export default function PatientChart() {
       </Link>
 
       {/* Patient Banner - EPIC-like */}
-      <div className="bg-cisco-dark-blue rounded-xl p-4 text-white">
+      <div className="bg-cisco-dark-blue rounded-xl p-4 text-white" data-testid="patient-banner">
         <div className="flex flex-wrap items-start gap-4">
           <div className="w-14 h-14 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
             <span className="text-xl font-bold">{patient.first_name[0]}{patient.last_name[0]}</span>
@@ -253,7 +253,7 @@ export default function PatientChart() {
       {/* Tab content */}
       {tab === 'summary' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-problem-list">
             <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
               <Stethoscope size={16} className="text-cisco-blue" /> Active Problem List
             </h3>
@@ -276,7 +276,7 @@ export default function PatientChart() {
             )}
           </div>
 
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-allergies">
             <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
               <AlertTriangle size={16} className="text-cisco-red" /> Allergies & Reactions
             </h3>
@@ -299,7 +299,7 @@ export default function PatientChart() {
           </div>
 
           {patient.recentVitals?.[0] && (
-            <div className="card p-5">
+            <div className="card p-5" data-testid="card-latest-vitals">
               <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
                 <Activity size={16} className="text-cisco-blue" /> Latest Vitals
               </h3>
@@ -341,7 +341,7 @@ export default function PatientChart() {
               <Send size={16} /> New Prescription
             </button>
           </div>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden" data-testid="card-medications-table">
             <table className="data-table">
               <thead><tr><th>Medication</th><th>Dosage</th><th>Frequency</th><th>Route</th><th>Started</th><th>Status</th></tr></thead>
               <tbody>
@@ -378,7 +378,7 @@ export default function PatientChart() {
               <Plus size={16} /> Order Lab
             </button>
           </div>
-          <div className="card overflow-hidden">
+          <div className="card overflow-hidden" data-testid="card-labs-table">
             <table className="data-table">
               <thead><tr><th>Test</th><th>Result</th><th>Reference</th><th>Ordered</th><th>Resulted</th><th>Status</th></tr></thead>
               <tbody>
@@ -401,7 +401,7 @@ export default function PatientChart() {
       )}
 
       {tab === 'appointments' && (
-        <div className="card overflow-hidden">
+        <div className="card overflow-hidden" data-testid="card-appointments-table">
           <table className="data-table">
             <thead><tr><th>Date & Time</th><th>Type</th><th>Reason</th><th>Status</th></tr></thead>
             <tbody>
@@ -424,7 +424,7 @@ export default function PatientChart() {
             <Plus size={16} /> Add Progress Note
           </button>
           {notes.map(n => (
-            <div key={n.id} className="card p-5">
+            <div key={n.id} className="card p-5" data-testid={`note-card-${n.id}`}>
               <div className="flex justify-between items-start mb-3">
                 <div>
                   <span className="text-sm font-semibold text-gray-900 capitalize">{n.note_type} Note</span>
@@ -437,13 +437,13 @@ export default function PatientChart() {
             </div>
           ))}
           {notes.length === 0 && (
-            <div className="card p-12 text-center text-gray-500 text-sm">No clinical notes</div>
+            <div className="card p-12 text-center text-gray-500 text-sm" data-testid="notes-empty-state">No clinical notes</div>
           )}
         </div>
       )}
 
       {tab === 'vitals' && (
-        <div className="card p-5">
+        <div className="card p-5" data-testid="card-vitals-placeholder">
           <p className="text-sm text-gray-500">Vitals history — see Summary tab for latest values.</p>
         </div>
       )}

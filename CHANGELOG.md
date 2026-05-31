@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.0.2] — 2026-05-31
+
+### Added
+
+**Frontend — data-testid coverage for ThousandEyes transaction tests**
+- `PatientChart` (provider view): added `data-testid` to patient banner, all Summary tab cards (`card-problem-list`, `card-allergies`, `card-latest-vitals`), tab content containers (`card-medications-table`, `card-labs-table`, `card-appointments-table`, `card-vitals-placeholder`), individual note cards (`note-card-{id}`), and empty state
+- `Dashboard` (patient view): added `data-testid` to welcome banner (`dashboard-welcome-banner`) and all five card containers (`card-upcoming-appointments`, `card-recent-labs`, `card-quick-actions`, `card-billing-summary`, `card-active-medications`)
+- Enables transaction test steps to `await` specific cards before proceeding, preventing false timeouts on the Labs and Patient Chart flows
+
+**Frontend — admin login portal**
+- `/admin/login` route added alongside the existing `/login` and patient portal routes
+- Login page detects the `/admin` path and renders an "Admin Portal" hero with `admin@demo.com` pre-filled
+
+### Fixed
+
+**Frontend — font loading caused ThousandEyes transaction test timeouts**
+- Replaced Google Fonts CDN (`fonts.gstatic.com`) with `@fontsource` self-hosted packages — eliminates external DNS/TCP on cold loads (incognito mode)
+- IBM Plex Sans `@font-face` declarations rewritten with `font-display: optional`: browser commits to the system fallback immediately in incognito instead of stalling render waiting for the font file
+- IBM Plex Mono removed as a web font entirely; `font-mono` now uses the system monospace stack (`ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas`). This was the primary cause — the font was fetched lazily the first time the Labs tab rendered, producing 15–21 second waterfall entries that caused transaction step timeouts
+
+---
+
 ## [2.0.1] — 2026-05-25
 
 ### Performance

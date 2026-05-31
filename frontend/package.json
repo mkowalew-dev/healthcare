@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.2.7",
+    "@fontsource/ibm-plex-sans": "^5.2.8",
     "@opentelemetry/api": "^1.8.0",
     "@splunk/otel-web": "^0.18.0",
     "axios": "1.14.0",
