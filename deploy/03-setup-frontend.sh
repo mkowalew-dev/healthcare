@@ -31,6 +31,7 @@ set -euo pipefail
 # You can also edit these defaults and run the script directly.
 CLINICAL_HOST="${CLINICAL_HOST:-${FRONTEND_HOST:-careconnect.example.com}}"
 PATIENT_HOST="${PATIENT_HOST:-mychart.example.com}"
+MOBILE_HOST="${MOBILE_HOST:-mobile.pseudo-co.com}"
 WEB_ROOT="${WEB_ROOT:-/var/www/careconnect}"
 SERVE_PORT="${SERVE_PORT:-80}"
 
@@ -326,6 +327,73 @@ server {
     }
 }
 
+# ── Haiku Mobile App  (mobile.pseudo-co.com) ──────────────────────────────
+server {
+    listen ${SERVE_PORT};
+    server_name ${MOBILE_HOST};
+
+    root ${WEB_ROOT};
+
+    location = /ping {
+        access_log off;
+        return 200 "pong\n";
+        add_header Content-Type text/plain;
+    }
+
+    location /api/ {
+        proxy_pass http://api_cluster/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    location /fhir/ {
+        proxy_pass http://api_cluster/fhir/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    location = /health {
+        proxy_pass http://api_cluster/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header Connection "";
+    }
+
+    location /bff/ {
+        proxy_pass http://localhost:${BFF_PORT}/bff/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Serve haiku.html as the SPA fallback for all routes on this subdomain.
+    # Intentionally omits $uri/ — the directory check causes Nginx to serve
+    # index.html (clinical portal) instead of haiku.html when $uri is /.
+    location / {
+        try_files \$uri /haiku.html;
+    }
+}
+
 # ── Internal upstream proxy for BFF → API cluster ───────────────
 # BFF calls http://127.0.0.1:${BFF_UPSTREAM_PORT} instead of a
 # hardcoded single API IP, so all BFF→API calls are also load-balanced.
@@ -388,7 +456,7 @@ if [[ -n "$BFF_SRC" && -d "$BFF_SRC" ]]; then
 NODE_ENV=production
 BFF_PORT=${BFF_PORT}
 API_URL=http://127.0.0.1:${BFF_UPSTREAM_PORT}
-CORS_ORIGIN=https://${FRONTEND_HOST}
+CORS_ORIGIN=https://${FRONTEND_HOST},https://${MOBILE_HOST}
 LOG_LEVEL=info
 SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN}
 SPLUNK_REALM=${SPLUNK_REALM}
@@ -473,6 +541,7 @@ echo ""
 echo "  ── Nginx routing ───────────────────────────────────────"
 echo "  ${PATIENT_HOST}   →  /patient.html  (MyChart patient portal)"
 echo "  ${CLINICAL_HOST}  →  /index.html    (CareConnect clinical)"
+echo "  ${MOBILE_HOST}    →  /haiku.html    (Haiku mobile app)"
 echo "  /ping    → 200 OK  (ALB/load-balancer health probe)"
 echo "  /api/*   → upstream api_cluster  (${API_PRIVATE_IPS})"
 echo "  /fhir/*  → upstream api_cluster"

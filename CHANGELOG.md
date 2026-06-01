@@ -5,6 +5,75 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.1.1] — 2026-05-31
+
+### Fixed
+
+**Nginx — `mobile.pseudo-co.com` served clinical portal at root**
+- `try_files $uri $uri/ /haiku.html` in the mobile server block caused Nginx to serve `index.html` (clinical portal) when the request path was `/`, because the `$uri/` check found the `/var/www/careconnect/` directory and the default `index` directive served `index.html` from it. Changed to `try_files $uri /haiku.html` — the directory check is not needed for an SPA fallback and was the root cause. The `/haiku/` sub-path worked correctly before the fix because no `haiku/` directory exists in the Vite build output.
+- Applied in `deploy/03-setup-frontend.sh` and `deploy/04-update.sh`
+
+**`aws-deploy.sh status` — all web VMs reported `000ERR`**
+- Status check was hitting VM1 public IPs directly on port 80 (`http://<ip>/ping`). VM1 security groups correctly restrict port 80 to the ALB SG only, so direct-IP checks always fail in production. Changed web tier checks to use HTTPS via the ALB hostnames (`https://careconnect.pseudo-co.com/ping`, `https://mychart.pseudo-co.com/ping`, `https://mobile.pseudo-co.com/ping`) — the real user path — and replaced per-VM HTTP probes with SSH → `systemctl is-active nginx/careconnect-bff`.
+- Added per-VM Haiku service check: SSH → `curl localhost:3022/health`
+- Fixed cosmetic `000000ERR` output: `curl -w "%{http_code}"` always writes `000` on failure; the redundant `|| echo "000ERR"` caused duplication
+
+**Haiku login — email field was blank**
+- `HaikuLogin.tsx` now pre-seeds `provider@demo.com` in the email field, consistent with the admin portal pre-filling `admin@demo.com`
+
+**`mobile.pseudo-co.com` — subdomain moved from path to dedicated hostname**
+- Haiku was originally served at `careconnect.pseudo-co.com/haiku/` and required a no-trailing-slash redirect (`location = /haiku { return 301 /haiku/; }`). Replaced with a dedicated `mobile.pseudo-co.com` Nginx server block — no path prefix, no redirect edge cases
+- `MOBILE_HOST` variable added to all deploy scripts and `config.env.example`; CORS and BFF origins updated
+- Vite dev server retains the `/haiku/` rewrite plugin for local development (subdomains not available on localhost without `/etc/hosts` changes)
+
+---
+
+## [2.1.0] — 2026-05-31
+
+### Added
+
+**Haiku — Mobile Clinician Application**
+
+Haiku is a mobile-first companion app for providers, modelled after EPIC Haiku. It gives clinicians at-a-glance access to their in-basket, patient worklist, schedule, and quick chart view from a phone or tablet. It runs as a third React SPA (`haiku.html`) served at `careconnect.pseudo-co.com/haiku/` — no new hostname or VM required.
+
+**Backend — `careconnect-haiku` aggregation service (port 3022)**
+- New PM2 service (`src/services/haiku-service.js`) running on loopback port 3022
+- Registered in `tracing.js` loopback map so Splunk APM names it correctly in the service map
+- Proxied by the API gateway at `/api/haiku/*`
+- Six REST endpoints, all provider-scoped (JWT required):
+  - `GET /api/haiku/inbox` — In-basket: unread messages + critical/abnormal labs pending sign-off + medications with zero refills remaining; returns `badge_count` for the app icon
+  - `GET /api/haiku/schedule` — Today's appointments for the authenticated provider in chronological order
+  - `GET /api/haiku/worklist` — All assigned patients with urgency signals (critical lab count, abnormal lab count, active medication count, today's appointment flag)
+  - `GET /api/haiku/patients/:id/quickview` — Single aggregated mobile payload: latest vitals, active diagnoses (problem list), top 5 recent labs, active medications, allergies
+  - `PATCH /api/haiku/labs/:id/acknowledge` — Signs a critical/abnormal lab result with a timestamped Haiku annotation; removes it from the inbox
+  - `PATCH /api/haiku/messages/:id/read` — Marks an inbox message as read from the mobile app
+
+**Frontend — Haiku SPA (`haiku.html` → `/haiku/*`)**
+- New Vite build entry point (`haiku.html`) — produced alongside `index.html` and `patient.html` in the same `npm run build`
+- Splunk RUM initialised as a separate application (`careconnect-haiku`) for independent mobile session tracking
+- `AppHaiku.tsx` router with JWT auth guard (provider-only) and four route-level lazy-loaded pages
+- Mobile bottom navigation bar with badge count on the Inbox tab (driven by `badge_count` from the API)
+- Touch-optimised UI: large tap targets, card-based layout, iOS-style status styling
+
+**Pages:**
+- **Inbox** (`/haiku/inbox`) — Three-tab in-basket (Labs / Messages / Refills); lab cards show value, reference range, and a Sign Result action; messages mark as read on tap
+- **Patients** (`/haiku/patients`) — Worklist with live search (name or MRN); urgency indicators (red triangle for critical labs, orange count for abnormal); today's appointment badge
+- **Quick View** (`/haiku/patients/:id`) — At-a-glance chart: vitals grid (BP, HR, SpO₂, Temp, Weight, Pain), allergy list with severity badges, problem list with ICD codes, recent labs, active meds
+- **Schedule** (`/haiku/schedule`) — Today's timeline with status chips (Scheduled / Checked In / Completed / No Show), chief complaint, and location; links through to Quick View
+
+**Deployment**
+- `deploy/02-setup-api.sh` — `careconnect-haiku` PM2 entry added to ecosystem template (initial provision)
+- `deploy/04-update.sh` `api` — PM2 ecosystem regenerated with `careconnect-haiku` on updates
+- `deploy/03-setup-frontend.sh` — adds a new `mobile.pseudo-co.com` Nginx server block that serves `haiku.html` as the SPA fallback; `MOBILE_HOST` variable added; BFF CORS includes mobile origin
+- `deploy/04-update.sh` — same Nginx server block in the regenerated config; API CORS and BFF CORS updated to include mobile origin
+- `deploy/02-setup-api.sh` — `MOBILE_HOST` added to `CORS_ORIGIN` on first provision
+- `deploy/aws-deploy.sh` — `MOBILE_HOST` threaded through all four SSH env blocks (`init api`, `init frontend`, `update api`, `update frontend`); status output shows Haiku portal URL
+- `deploy/config.env.example` — `MOBILE_HOST=mobile.pseudo-co.com` added; Route 53 DNS note updated
+- DNS: add `mobile.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS` in Route 53; add `mobile.*` host-header rule to both internet-facing ALBs
+- Deploy command: `bash deploy/aws-deploy.sh update api && bash deploy/aws-deploy.sh update frontend`
+
+---
+
 ## [2.0.2] — 2026-05-31
 
 ### Added

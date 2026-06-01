@@ -30,6 +30,7 @@ APP_VERSION="${APP_VERSION:-2.0.1}"
 # cross-portal redirect logic. Also used to regenerate the Nginx config.
 CLINICAL_HOST="${CLINICAL_HOST:-${FRONTEND_HOST:-}}"
 PATIENT_HOST="${PATIENT_HOST:-}"
+MOBILE_HOST="${MOBILE_HOST:-}"
 # ───────────────────────────────────────────────────────────
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -102,10 +103,12 @@ module.exports = {
       env: { OTEL_SERVICE_NAME: 'careconnect-providers',     PROVIDERS_SERVICE_PORT:     '3019' } },
     { ...common, name: 'careconnect-appointments',  script: 'src/services/appointments-service.js',       instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-appointments',  APPOINTMENTS_SERVICE_PORT:  '3020' } },
+    { ...common, name: 'careconnect-haiku',         script: 'src/services/haiku-service.js',               instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-haiku',         HAIKU_SERVICE_PORT:         '3022' } },
   ],
 };
 ECOEOF
-    log "ecosystem.config.js regenerated (11 services)"
+    log "ecosystem.config.js regenerated (12 services)"
 
     # Re-seed the database with fresh demo data
     info "Re-seeding database..."
@@ -154,6 +157,7 @@ ECOEOF
     if [[ -n "${CLINICAL_HOST:-${FRONTEND_HOST:-}}" ]]; then
       _cors="https://${CLINICAL_HOST:-${FRONTEND_HOST}}"
       [[ -n "${PATIENT_HOST:-}" ]] && _cors="${_cors},https://${PATIENT_HOST}"
+      [[ -n "${MOBILE_HOST:-}"  ]] && _cors="${_cors},https://${MOBILE_HOST}"
       set_env CORS_ORIGIN "${_cors}" "${APP_DIR}/.env"
       log "CORS_ORIGIN set to ${_cors}"
     fi
@@ -236,6 +240,7 @@ ECOEOF
     if [[ -n "$_api_alb" || -n "$_api_ips" ]]; then
       _clinical="${CLINICAL_HOST:-${FRONTEND_HOST:-careconnect.example.com}}"
       _patient="${PATIENT_HOST:-mychart.example.com}"
+      _mobile="${MOBILE_HOST:-mobile.pseudo-co.com}"
       # Write gzip settings to conf.d so they live in the http{} block
       # without conflicting with the base gzip directive in nginx.conf.
       cat > /etc/nginx/conf.d/gzip.conf <<'GZIPEOF'
@@ -343,6 +348,53 @@ server {
     }
 
     location / { try_files \$uri \$uri/ /index.html; }
+}
+
+# ── Haiku Mobile App  (mobile.pseudo-co.com) ──────────────────────────────
+server {
+    listen 80;
+    server_name ${_mobile};
+
+    root ${WEB_ROOT};
+
+    location = /ping { access_log off; return 200 "pong\n"; add_header Content-Type text/plain; }
+
+    location /api/ {
+        proxy_pass http://api_cluster/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
+    }
+
+    location /fhir/ {
+        proxy_pass http://api_cluster/fhir/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme; proxy_set_header Connection "";
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
+    }
+
+    location = /health {
+        proxy_pass http://api_cluster/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header Connection "";
+    }
+
+    location /bff/ {
+        proxy_pass http://localhost:${BFF_PORT}/bff/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host; proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 10s; proxy_send_timeout 60s; proxy_read_timeout 60s;
+    }
+
+    location / { try_files \$uri /haiku.html; }
 }
 
 server {
@@ -499,6 +551,7 @@ SVCEOF
     fi
     _bff_cors="https://${CLINICAL_HOST:-${FRONTEND_HOST:-localhost}}"
     [[ -n "${PATIENT_HOST:-}" ]] && _bff_cors="${_bff_cors},https://${PATIENT_HOST}"
+    [[ -n "${MOBILE_HOST:-}"  ]] && _bff_cors="${_bff_cors},https://${MOBILE_HOST}"
     info "Writing BFF .env (API_URL=${_BFF_API_URL}, CORS=${_bff_cors})..."
     cat > "${BFF_DIR}/.env" <<ENVEOF
 NODE_ENV=production

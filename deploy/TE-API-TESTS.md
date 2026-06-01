@@ -42,8 +42,9 @@ Stable across all seeded deployments — safe to hardcode in step URLs.
 | `CareConnect — Appointments` | 4 | Provider login | 12 s |
 | `CareConnect — Patients & Clinical` | 7 | Provider login | 20 s |
 | `CareConnect — Integration Status` | 5 | Admin login | 15 s |
+| `CareConnect — Haiku Mobile` | 6 | Provider login | 15 s |
 
-Set **API Target Time for View** to 3 s on all tests.
+Set **API Target Time for View** to 3 s on all tests. Set it to **2 s** on the Haiku test — mobile clinicians making time-critical decisions (critical lab sign-off) have lower tolerance for latency than desktop users.
 
 ---
 
@@ -755,6 +756,161 @@ This is the most expensive call — full chart aggregation across multiple table
 
 ---
 
+## Test 9 — Haiku Mobile
+
+**Test name:** `CareConnect — Haiku Mobile`
+**Timeout:** 15 s
+**Frequency:** 5 min (in-basket and aggregation endpoints are the highest-value mobile signals)
+**Base URL:** `https://mobile.pseudo-co.com` — all steps in this test use the mobile subdomain, giving ThousandEyes a distinct network path to trace and Splunk RUM a separate `careconnect-haiku` session to measure.
+
+> **Why stricter targets?** Haiku is used at the point of care — a clinician glancing at their phone between patient rooms. Any response > 3 s is clinically disruptive. Alert thresholds for this test are tighter than the desktop portal equivalents.
+
+---
+
+**Step 1 — Login (provider)**
+
+| Field | Value |
+|-------|-------|
+| Method | `POST` |
+| URL | `https://mobile.pseudo-co.com/api/auth/login` |
+| Auth | None |
+| Body | `{"email":"provider@demo.com","password":"{{$cc-provider-password}}"}` |
+| Content-Type header | `application/json` |
+
+*Post-Request → Extract variables:*
+| Variable name | JSONPath |
+|---------------|----------|
+| `token` | `token` |
+
+*Assertion Rules:*
+| Subject | Operator | Value |
+|---------|----------|-------|
+| HTTP Status Code | is equal to | `200` |
+| Response Body | contains | `"token"` |
+
+---
+
+**Step 2 — In-basket (inbox)**
+
+The highest-value Haiku endpoint. Aggregates unread messages, critical/abnormal labs, and zero-refill medications in a single call. A slow or failed response means the provider misses critical alert badges.
+
+| Field | Value |
+|-------|-------|
+| Method | `GET` |
+| URL | `https://mobile.pseudo-co.com/api/haiku/inbox` |
+| Auth | Bearer Token → `{{token}}` |
+
+*Post-Request → Extract variables:*
+| Variable name | JSONPath |
+|---------------|----------|
+| `criticalLabId` | `critical_labs[0].id` |
+| `msgId` | `messages[0].id` |
+
+*Assertion Rules:*
+| Subject | Operator | Value |
+|---------|----------|-------|
+| HTTP Status Code | is equal to | `200` |
+| Response Body | contains | `"badge_count"` |
+| Response Body | contains | `"critical_labs"` |
+| Response Body | contains | `"messages"` |
+| Response Body | contains | `"refill_requests"` |
+
+---
+
+**Step 3 — Today's schedule**
+
+Validates that the schedule aggregation works and returns appointment shape expected by the mobile UI.
+
+| Field | Value |
+|-------|-------|
+| Method | `GET` |
+| URL | `https://mobile.pseudo-co.com/api/haiku/schedule` |
+| Auth | Bearer Token → `{{token}}` |
+
+*Assertion Rules:*
+| Subject | Operator | Value |
+|---------|----------|-------|
+| HTTP Status Code | is equal to | `200` |
+
+---
+
+**Step 4 — Patient worklist**
+
+Validates the worklist aggregation including urgency signal counts. Extracts a patient ID for the next step.
+
+| Field | Value |
+|-------|-------|
+| Method | `GET` |
+| URL | `https://mobile.pseudo-co.com/api/haiku/worklist` |
+| Auth | Bearer Token → `{{token}}` |
+
+*Post-Request → Extract variables:*
+| Variable name | JSONPath |
+|---------------|----------|
+| `patientId` | `[0].id` |
+
+*Assertion Rules:*
+| Subject | Operator | Value |
+|---------|----------|-------|
+| HTTP Status Code | is equal to | `200` |
+| Response Body | contains | `"critical_labs"` |
+| Response Body | contains | `"active_meds"` |
+
+---
+
+**Step 5 — Patient Quick View**
+
+The most expensive Haiku call — six parallel DB queries aggregated into one mobile payload (vitals, diagnoses, labs, meds, allergies, patient demographics). Uses the seeded patient UUID so the step never fails due to an empty worklist.
+
+| Field | Value |
+|-------|-------|
+| Method | `GET` |
+| URL | `https://mobile.pseudo-co.com/api/haiku/patients/66666666-0000-0000-0000-000000000001/quickview` |
+| Auth | Bearer Token → `{{token}}` |
+
+*Assertion Rules:*
+| Subject | Operator | Value |
+|---------|----------|-------|
+| HTTP Status Code | is equal to | `200` |
+| Response Body | contains | `"vitals"` |
+| Response Body | contains | `"medications"` |
+| Response Body | contains | `"allergies"` |
+| Response Body | contains | `"diagnoses"` |
+| Response Body | contains | `"recent_labs"` |
+
+---
+
+**Step 6 — Auth validation (token integrity)**
+
+Confirms the JWT is still valid after the full sequence. Mirrors the pattern used in the Appointments test.
+
+| Field | Value |
+|-------|-------|
+| Method | `GET` |
+| URL | `https://mobile.pseudo-co.com/api/auth/me` |
+| Auth | Bearer Token → `{{token}}` |
+
+*Assertion Rules:*
+| Subject | Operator | Value |
+|---------|----------|-------|
+| HTTP Status Code | is equal to | `200` |
+| Response Body | contains | `"role"` |
+
+---
+
+> **Optional step 7 — Lab acknowledge (write path)**
+> Add this step if you want to exercise the write path and verify the `careconnect-haiku` service handles PATCH requests correctly. Use `{{criticalLabId}}` extracted in step 2 (skip gracefully if the variable is empty — there may be no critical labs in the current seed state).
+>
+> | Field | Value |
+> |-------|-------|
+> | Method | `PATCH` |
+> | URL | `https://mobile.pseudo-co.com/api/haiku/labs/{{criticalLabId}}/acknowledge` |
+> | Auth | Bearer Token → `{{token}}` |
+>
+> *Assertion:* HTTP Status Code is equal to `200` **or** `404` (404 is acceptable when `criticalLabId` is empty or already acknowledged).
+
+---
+
 ## Alert thresholds
 
 Configure these in **Alert Rules** assigned to each test.
@@ -769,8 +925,13 @@ Configure these in **Alert Rules** assigned to each test.
 | Appointments | Any step HTTP ≠ 200 | Total sequence > 6 s |
 | Patients & Clinical | Any step HTTP ≠ 200 | Total sequence > 12 s |
 | Integration Status | Any step HTTP ≠ 200, or `"reachable":true` missing | Total sequence > 10 s |
+| **Haiku Mobile** | **Any step HTTP ≠ 200, or assertion fails** | **Total sequence > 8 s · inbox step alone > 3 s** |
 
 For the Integration Status test, set **"Error Type = Any"** on the alert rule so that an assertion failure on `"reachable":true` triggers the same alert as an HTTP 503.
+
+For the Haiku Mobile test, create **two alert rules**:
+1. **Haiku — Availability**: Error Type = Any, triggers when any step returns non-200 or an assertion fails. Rationale: a failed inbox call means a provider cannot see critical lab alerts.
+2. **Haiku — Latency**: Condition = Response time of step 2 (inbox) > 3 000 ms. Assign to at least one cloud agent in the same AWS region as your deployment. This catches `careconnect-haiku` service degradation before it affects the full sequence timeout.
 
 ---
 
@@ -781,6 +942,9 @@ For the Integration Status test, set **"Error Type = Any"** on the alert rule so
 | Cloud agents — US East / US West | Baseline availability and latency from AWS regions matching your ALB placement |
 | Cloud agents — EU / APAC | Simulate cross-region access for international integration partners (Surescripts, Quest) |
 | Enterprise Agent at clinic site | Network-path visibility (BGP, hops) from the actual clinical network to the ALB |
+| Enterprise Agent on LTE/5G cellular network | **Haiku Mobile test only** — simulates a provider using the app on a mobile data connection outside the hospital; surfaces latency variance not visible from wired cloud agents |
+
+> **Haiku agent recommendation:** Assign the Haiku Mobile test to **both** a cloud agent (wired baseline) and a cellular Enterprise Agent (mobile path). The inbox aggregation endpoint calls four internal loopback services; cellular jitter often exposes timeout fragility that wired agents do not. A delta > 500 ms between the two agent groups is a reliable indicator of mobile network path degradation worth investigating.
 
 ---
 
@@ -791,6 +955,7 @@ Run this before configuring ThousandEyes to confirm all endpoints return 200 fro
 ```bash
 #!/bin/bash
 BASE=https://careconnect.pseudo-co.com
+MOBILE=https://mobile.pseudo-co.com
 PATIENT=66666666-0000-0000-0000-000000000001
 PROVIDER=33333333-0000-0000-0000-000000000001
 
@@ -877,6 +1042,13 @@ check "Surescripts"               "$BASE/api/eprescribe/integration/status"  "$A
 check "Quest / LabCorp LIS"       "$BASE/api/labs/integration/status"        "$ADMIN_TOKEN"
 check "Twilio / SendGrid"         "$BASE/api/notifications/integration/status" "$ADMIN_TOKEN"
 check "FHIR status"               "$BASE/fhir/status"                        "$ADMIN_TOKEN"
+
+echo ""
+echo "=== Haiku Mobile (mobile.pseudo-co.com) ==="
+check "Inbox (in-basket)"         "$MOBILE/api/haiku/inbox"
+check "Schedule (today)"          "$MOBILE/api/haiku/schedule"
+check "Worklist (assigned pts)"   "$MOBILE/api/haiku/worklist"
+check "Quick View (patient)"      "$MOBILE/api/haiku/patients/$PATIENT/quickview"
 
 echo ""
 ```

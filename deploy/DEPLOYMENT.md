@@ -84,8 +84,9 @@ Both read from **`deploy/config.env`** — one source of truth for all configura
 |-----|--------|-------|-------------|
 | `careconnect.pseudo-co.com` | CareConnect Clinical | Providers, Admins | `index.html` |
 | `mychart.pseudo-co.com` | MyChart Patient Portal | Patients | `patient.html` |
+| `mobile.pseudo-co.com` | Haiku Mobile | Providers (mobile) | `haiku.html` |
 
-Both subdomains route to the **same VM1** (or ALB target group). Nginx serves a different React bundle depending on the `Host` header. The React builds are produced in one `npm run build` command using Vite's multi-page build.
+All three portals route to the **same VM1** (or ALB target group). Nginx serves a different React bundle depending on the `Host` header. All three builds are produced in one `npm run build` command using Vite's multi-page build.
 
 **Cross-portal redirect** — baked in at build time via `VITE_CLINICAL_HOST` / `VITE_PATIENT_HOST`:
 - A patient who logs into `careconnect.pseudo-co.com` is redirected to `mychart.pseudo-co.com`
@@ -97,16 +98,17 @@ browser (RUM)  ──▶  careconnect-bff (VM1:3003)  ──▶  careconnect-api
 ```
 Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messages, billing, and FHIR go direct to the API.
 
-**Two Splunk RUM applications:**
+**Three Splunk RUM applications:**
 - `careconnect-clinical` — clinical portal sessions
 - `mychart-patient` — patient portal sessions
+- `careconnect-haiku` — mobile clinician app sessions
 
 ### VM roles
 
 | VM | Role | Services | Public-facing port |
 |----|------|----------|--------------------|
-| VM1 | Frontend + BFF | Nginx (dual-portal static + proxy), BFF Node.js proxy | :80 |
-| VM2 | API | Node.js gateway + 11 domain services (PM2) | none — proxied via VM1 |
+| VM1 | Frontend + BFF | Nginx (three-portal static + proxy), BFF Node.js proxy | :80 |
+| VM2 | API | Node.js gateway + 12 domain services (PM2) | none — proxied via VM1 |
 | VM3 | Database | PostgreSQL 17 | none — private only |
 | VM4 | Mock External Services | Node.js mock server | none — private only |
 | **Local** | **PACS Radiology** | **PACS Server (PM2 :3021), PACS Viewer (PM2 :5174)** | **:3021, :5174** |
@@ -119,6 +121,8 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 | `mychart.pseudo-co.com` | `/*` | `/patient.html` (MyChart React SPA) |
 | `careconnect.pseudo-co.com` | `/api/*`, `/fhir/*`, `/bff/*` | API / BFF (shared) |
 | `careconnect.pseudo-co.com` | `/*` | `/index.html` (CareConnect React SPA) |
+| `mobile.pseudo-co.com` | `/api/*`, `/fhir/*`, `/bff/*` | API / BFF (shared) |
+| `mobile.pseudo-co.com` | `/*` | `/haiku.html` (Haiku mobile SPA) |
 | Any | `/ping` | 200 OK (ALB health probe) |
 | Any | `/health` | API health check |
 
@@ -137,6 +141,7 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 - [ ] Route 53 DNS records — **point at Global Accelerator, not the ALBs directly**:
   - `careconnect.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
   - `mychart.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
+  - `mobile.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
 
 **Local PACS (local-deploy.sh):**
 - [ ] VM5 running Ubuntu 22.04 LTS (or any Linux) — reachable via SSH from your deployment machine
@@ -163,7 +168,7 @@ VM2's security group must allow port 3001 from **both** VPC CIDRs (use2 and uw1)
 2. For each regional ALB:
    - Target group: VM1 private IP(s) in that region, port 80
    - HTTPS listener :443 with ACM wildcard cert for `*.pseudo-co.com` (request in each region separately)
-   - Two host-header rules → same target group: `mychart.*` and `careconnect.*`
+   - Three host-header rules → same target group: `mychart.*`, `careconnect.*`, and `mobile.*`
    - HTTP :80 → HTTPS redirect
    - Health check: `GET /ping`
 3. Note both ALB DNS names → set `FRONTEND_ALB_DNS_USE2` and `FRONTEND_ALB_DNS_UW1` in `config.env`

@@ -1,25 +1,25 @@
 # CareConnect EHR
 
-**v2.0.1** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
+**v2.1.0** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Tailwind CSS (Cisco theme) |
-| Backend | Node.js + Express (11 PM2 domain services) |
+| Backend | Node.js + Express (12 PM2 domain services) |
 | Database | PostgreSQL 17 |
 | Auth | JWT (12h expiry) |
 | Charts | Recharts (lazy-loaded) |
 | Tracing | OpenTelemetry + Splunk APM |
-| RUM | @splunk/otel-web (clinical + patient portals) |
+| RUM | @splunk/otel-web (clinical, patient, and Haiku portals) |
 
 ## Demo Credentials
 
 | Role | Email | Password | Portal |
 |------|-------|----------|--------|
 | **Patient** | `patient@demo.com` | `Demo123!` | mychart.pseudo-co.com |
-| **Provider** | `provider@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
+| **Provider** | `provider@demo.com` | `Demo123!` | careconnect.pseudo-co.com · mobile.pseudo-co.com |
 | **Admin** | `admin@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
 | **Radiologist** | `dr.chen@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
 | **Radiologist** | `dr.patel@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
@@ -87,6 +87,13 @@ npm run dev       # React app on :5173
 - **User Management** — View all users, activate/deactivate accounts
 - **Departments** — Department overview with provider counts
 - **Integration Health** — Live connectivity dashboard for all external services, latency metrics, notification trigger panel, and mock chaos controls
+
+### Haiku — Mobile Clinician App (`mobile.pseudo-co.com`)
+Modelled after EPIC Haiku. Provider-only PWA optimised for phones and tablets.
+- **Inbox** — Three-tab in-basket: critical/abnormal labs pending sign-off (with Sign Result action), unread messages, and refill requests; badge count on the nav tab
+- **Patients** — Assigned patient worklist with live search; urgency signals (critical lab count, today's appointment flag)
+- **Quick View** — At-a-glance patient chart: latest vitals grid, allergies, problem list, recent labs, active medications
+- **Schedule** — Today's appointment timeline with status chips and chief complaint; taps through to Quick View
 
 ---
 
@@ -234,6 +241,13 @@ POST /api/messages                             Send message
 
 GET  /api/admin/stats                          System statistics
 GET  /api/admin/users                          All users
+
+GET  /api/haiku/inbox                          In-basket: unread msgs + critical labs + refill requests (provider)
+GET  /api/haiku/schedule                       Today's appointments for authenticated provider
+GET  /api/haiku/worklist                       Assigned patients with urgency signals (provider)
+GET  /api/haiku/patients/:id/quickview         Aggregated mobile chart summary (provider)
+PATCH /api/haiku/labs/:id/acknowledge          Sign/acknowledge a lab result from Haiku (provider)
+PATCH /api/haiku/messages/:id/read             Mark inbox message as read from Haiku (provider)
 ```
 
 ---

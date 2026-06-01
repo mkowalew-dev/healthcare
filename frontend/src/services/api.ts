@@ -186,6 +186,16 @@ export const notificationsApi = {
   integrationStatus: () => bff.get('/bff/notifications/integration/status'),
 };
 
+// Haiku — mobile clinician aggregation service
+export const haikuApi = {
+  inbox:           () => api.get('/api/haiku/inbox'),
+  schedule:        () => api.get('/api/haiku/schedule'),
+  worklist:        () => api.get('/api/haiku/worklist'),
+  quickview:       (id: string) => api.get(`/api/haiku/patients/${id}/quickview`),
+  acknowledgeLab:  (id: string) => api.patch(`/api/haiku/labs/${id}/acknowledge`),
+  markMessageRead: (id: string) => api.patch(`/api/haiku/messages/${id}/read`),
+};
+
 // FHIR R4 API
 export const fhirApi = {
   metadata: () => api.get('/fhir/metadata'),

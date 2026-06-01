@@ -100,6 +100,7 @@ IFS=',' read -ra API_PRIVATE_IP_ARRAY      <<< "${API_PRIVATE_IPS}"
 # Derive CLINICAL_HOST from FRONTEND_HOST if not explicitly set (backward compat)
 CLINICAL_HOST="${CLINICAL_HOST:-${FRONTEND_HOST:-}}"
 PATIENT_HOST="${PATIENT_HOST:-}"
+MOBILE_HOST="${MOBILE_HOST:-}"
 
 # Regional ALB DNS names (internet-facing, one per region)
 FRONTEND_ALB_DNS_USE2="${FRONTEND_ALB_DNS_USE2:-}"
@@ -258,6 +259,7 @@ init_api() {
         FRONTEND_PRIVATE_IPS='${FRONTEND_PRIVATE_IPS}' \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
+        MOBILE_HOST='${MOBILE_HOST:-}' \
         MOCK_HOST='${MOCK_PRIVATE_IP:-}' \
         MOCK_PORT='${MOCK_PORT:-3002}' \
         ANTHROPIC_API_KEY='${ANTHROPIC_API_KEY:-}' \
@@ -294,6 +296,7 @@ init_frontend() {
       "sudo env \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
+        MOBILE_HOST='${MOBILE_HOST:-}' \
         API_URL='${API_URL:-}' \
         API_ALB_DNS='${API_ALB_DNS:-}' \
         API_PRIVATE_IPS='${API_PRIVATE_IPS}' \
@@ -379,6 +382,7 @@ update_api() {
         MOCK_PORT='${MOCK_PORT:-3002}' \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
+        MOBILE_HOST='${MOBILE_HOST:-}' \
         DB_HOST='${DB_HOST:-}' \
         DB_NAME='${DB_NAME:-careconnect}' \
         DB_USER='${DB_USER:-careconnect}' \
@@ -417,6 +421,7 @@ update_frontend() {
         API_PRIVATE_IPS='${API_PRIVATE_IPS}' \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
+        MOBILE_HOST='${MOBILE_HOST:-}' \
         SPLUNK_RUM_TOKEN='${SPLUNK_RUM_TOKEN:-}' \
         SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
         APP_ENV='${APP_ENV:-production}' \
@@ -429,6 +434,7 @@ update_frontend() {
         API_PRIVATE_IPS='${API_PRIVATE_IPS}' \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
+        MOBILE_HOST='${MOBILE_HOST:-}' \
         BFF_PORT='${BFF_PORT:-3003}' \
         SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
         SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
@@ -480,7 +486,9 @@ update_mock() {
 # ════════════════════════════════════════════════════════════
 # STATUS — Health check all VMs
 #
-# Web VMs (VM1s): direct HTTP to public IP (Nginx is public-facing)
+# Web tier:  HTTPS via ALB hostnames — reflects the real user path and works
+#            even when VM1 port 80 is locked to the ALB SG (correct production config).
+#            Per-VM liveness is checked via SSH → curl localhost.
 # API VMs (VM2s): SSH in → curl localhost  (port 3001 not public)
 # DB VM   (VM3):  SSH in → systemctl check (port 5432 never public)
 # Mock VM (VM4):  SSH in → curl localhost  (port 3002 not public)
@@ -495,7 +503,7 @@ status_check() {
   _check_http() {
     local label="$1" url="$2"
     local code
-    code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$url" 2>/dev/null || echo "ERR")
+    code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "$url" 2>/dev/null)
     if [[ "$code" == "200" ]]; then
       log "  ${label} — HTTP ${code}"
       _ok=$(( _ok + 1 ))
@@ -518,12 +526,26 @@ status_check() {
     fi
   }
 
-  # ── Web tier ──────────────────────────────────────────────
+  # ── Web tier — end-to-end via ALB + HTTPS ─────────────────
+  # Checks the real user path: Global Accelerator → ALB → VM1 → BFF/API.
+  # Direct IP checks fail in production because VM1 SG only allows :80 from ALB.
+  echo -e "  ${BOLD}Web  Portals (via ALB → HTTPS)${NC}"
+  _check_http "CareConnect  /ping  (clinical)" "https://${CLINICAL_HOST}/ping"
+  _check_http "MyChart      /ping  (patient) " "https://${PATIENT_HOST}/ping"
+  [[ -n "${MOBILE_HOST:-}" ]] && \
+    _check_http "Haiku        /ping  (mobile)  " "https://${MOBILE_HOST}/ping"
+  _check_http "API          /health           " "https://${CLINICAL_HOST}/health"
+  _check_http "BFF          /bff/health       " "https://${CLINICAL_HOST}/bff/health"
+  echo ""
+
+  # ── Web tier — per-VM liveness via SSH ────────────────────
   local idx=0
   for pub_ip in "${FRONTEND_PUBLIC_IP_ARRAY[@]}"; do
-    echo -e "  ${BOLD}Web[$((idx+1))]  Frontend + BFF     pub: ${pub_ip}${NC}"
-    _check_http "CareConnect /ping (clinical)" "http://${pub_ip}/ping"
-    _check_http "BFF   /bff/health           " "http://${pub_ip}/bff/health"
+    echo -e "  ${BOLD}Web[$((idx+1))]  Nginx + BFF        pub: ${pub_ip}${NC}"
+    _check_via_ssh "Nginx    (systemd, via SSH)" "${pub_ip}" \
+      "systemctl is-active nginx"
+    _check_via_ssh "BFF      (systemd, via SSH)" "${pub_ip}" \
+      "systemctl is-active careconnect-bff"
     echo ""
     idx=$(( idx + 1 ))
   done
@@ -532,8 +554,10 @@ status_check() {
   idx=0
   for pub_ip in "${API_PUBLIC_IP_ARRAY[@]}"; do
     echo -e "  ${BOLD}API[$((idx+1))]  Node.js + PM2      pub: ${pub_ip}${NC}"
-    _check_via_ssh "API  /health  (via SSH)" "${pub_ip}" \
+    _check_via_ssh "Gateway  :3001  /health  (via SSH)" "${pub_ip}" \
       "curl -sf http://localhost:3001/health > /dev/null"
+    _check_via_ssh "Haiku    :3022  /health  (via SSH)" "${pub_ip}" \
+      "curl -sf http://localhost:3022/health > /dev/null"
     echo ""
     idx=$(( idx + 1 ))
   done
@@ -562,6 +586,8 @@ status_check() {
   echo "    Clinical: https://${CLINICAL_HOST}"
   [[ -n "${PATIENT_HOST:-}" ]] && \
     echo "    Patient:  https://${PATIENT_HOST}"
+  [[ -n "${MOBILE_HOST:-}" ]] && \
+    echo "    Haiku:    https://${MOBILE_HOST}"
   echo ""
   echo "  Global Accelerator: ${GLOBAL_ACCELERATOR_DNS:-'(not configured)'}"
   echo "  Regional ALBs:"
@@ -607,6 +633,7 @@ case "$CMD" in
         echo "  Portals (via Global Accelerator):"
         echo "    Clinical: https://${CLINICAL_HOST}"
         [[ -n "${PATIENT_HOST:-}" ]] && echo "    Patient:  https://${PATIENT_HOST}"
+        [[ -n "${MOBILE_HOST:-}"  ]] && echo "    Haiku:    https://${MOBILE_HOST}"
         echo ""
         echo "  Global Accelerator: ${GLOBAL_ACCELERATOR_DNS:-'(set GLOBAL_ACCELERATOR_DNS in config.env)'}"
         [[ -n "${FRONTEND_ALB_DNS_USE2:-}" ]] && echo "  ALB us-east-2: ${FRONTEND_ALB_DNS_USE2}"

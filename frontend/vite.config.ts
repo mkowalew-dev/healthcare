@@ -3,7 +3,23 @@ import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Rewrite /haiku/* → /haiku.html in the dev server so the Haiku SPA is
+    // served correctly for all its routes (mirrors the Nginx try_files rule
+    // in production). Without this, /haiku/inbox would 404 in dev.
+    {
+      name: 'haiku-dev-rewrite',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          if (req.url === '/haiku' || req.url?.startsWith('/haiku/')) {
+            req.url = '/haiku.html';
+          }
+          next();
+        });
+      },
+    },
+  ],
   server: {
     host: '0.0.0.0',
     port: 5173,
@@ -28,6 +44,7 @@ export default defineConfig({
       input: {
         main:    resolve(__dirname, 'index.html'),    // CareConnect clinical portal
         patient: resolve(__dirname, 'patient.html'),  // MyChart patient portal
+        haiku:   resolve(__dirname, 'haiku.html'),    // Haiku mobile clinician app
       },
       output: {
         manualChunks: {

@@ -26,6 +26,7 @@ const SVC_BILLING       = process.env.BILLING_SERVICE_URL       || 'http://127.0
 const SVC_AI            = process.env.AI_SERVICE_URL            || 'http://127.0.0.1:3018';
 const SVC_PROVIDERS     = process.env.PROVIDERS_SERVICE_URL     || 'http://127.0.0.1:3019';
 const SVC_APPOINTMENTS  = process.env.APPOINTMENTS_SERVICE_URL  || 'http://127.0.0.1:3020';
+const SVC_HAIKU         = process.env.HAIKU_SERVICE_URL         || 'http://127.0.0.1:3022';
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',').map(o => o.trim());
@@ -105,6 +106,7 @@ app.use('/fhir',              proxy(SVC_FHIR,          'careconnect-fhir'));
 app.use('/api/admin',         proxy(SVC_ADMIN,         'careconnect-admin'));
 app.use('/api/bills',         proxy(SVC_BILLING,       'careconnect-billing'));
 app.use('/api/ai',            proxy(SVC_AI,            'careconnect-ai'));
+app.use('/api/haiku',         proxy(SVC_HAIKU,         'careconnect-haiku'));
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => {

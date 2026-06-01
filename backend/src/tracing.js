@@ -36,6 +36,7 @@ const LOOPBACK_SERVICES = {
   3018: 'careconnect-ai',
   3019: 'careconnect-providers',
   3020: 'careconnect-appointments',
+  3022: 'careconnect-haiku',
 };
 
 if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {

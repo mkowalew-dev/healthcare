@@ -21,6 +21,7 @@ FRONTEND_PRIVATE_IPS="${FRONTEND_PRIVATE_IPS:-${FRONTEND_PRIVATE_IP:-10.0.1.10}}
 # mychart.pseudo-co.com and careconnect.pseudo-co.com to reach the same API.
 CLINICAL_HOST="${CLINICAL_HOST:-${FRONTEND_HOST:-}}"   # careconnect.pseudo-co.com
 PATIENT_HOST="${PATIENT_HOST:-}"                        # mychart.pseudo-co.com
+MOBILE_HOST="${MOBILE_HOST:-}"                          # mobile.pseudo-co.com (Haiku)
 SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN:-}"
 SPLUNK_REALM="${SPLUNK_REALM:-us1}"
 APP_VERSION="${APP_VERSION:-1.0.0}"
@@ -140,7 +141,9 @@ DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD_ENCODED}@${DB_HOST}:5432/${DB
 JWT_SECRET=${JWT_SECRET}
 CORS_ORIGIN=$(
   _c="https://${CLINICAL_HOST:-$HOSTNAME}"
-  [[ -n "${PATIENT_HOST:-}" ]] && echo "${_c},https://${PATIENT_HOST}" || echo "${_c}"
+  [[ -n "${PATIENT_HOST:-}" ]] && _c="${_c},https://${PATIENT_HOST}"
+  [[ -n "${MOBILE_HOST:-}"  ]] && _c="${_c},https://${MOBILE_HOST}"
+  echo "${_c}"
 )
 LOG_LEVEL=info
 APP_VERSION=${APP_VERSION}
@@ -243,6 +246,8 @@ module.exports = {
       env: { OTEL_SERVICE_NAME: 'careconnect-billing',       BILLING_SERVICE_PORT:       '3017' } },
     { ...common, name: 'careconnect-ai',            script: 'src/services/ai-service.js',         instances: 1,
       env: { OTEL_SERVICE_NAME: 'careconnect-ai',            AI_SERVICE_PORT:            '3018' } },
+    { ...common, name: 'careconnect-haiku',         script: 'src/services/haiku-service.js',      instances: 1,
+      env: { OTEL_SERVICE_NAME: 'careconnect-haiku',         HAIKU_SERVICE_PORT:         '3022' } },
   ],
 };
 EOF
