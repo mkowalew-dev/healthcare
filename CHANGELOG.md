@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.2.0] — 2026-06-02
+
+### Added
+
+**Cross-Region Replication Traffic Simulation**
+
+Generates sustained 20-minute traffic bursts from uw1-web02 (us-west-1) to api02 (us-east-2) across the Transit Gateway on port 873 (rsync — IANA well-known replication port), scheduled at a random time during business hours every Monday and Wednesday. Designed to produce a predictable, realistic traffic anomaly visible in Transit Gateway flow telemetry.
+
+- **Server (api02, us-east-2):** nginx on port 873 serving a pre-generated 512 MB random payload (`/opt/replication-server/data/replication.bin`); managed as `replication-server.service` (systemd); installs nginx automatically if not present on the API node; creates `sites-available`/`sites-enabled` scaffold and patches `nginx.conf` include if missing
+- **Client (uw1-web02, us-west-1):** curl loop downloads the payload repeatedly for exactly 20 minutes; managed as `replication-traffic.service` (systemd `Type=oneshot`); cron-triggered via `/etc/cron.d/replication-traffic`; service returns to `inactive (dead)` after each run so the next scheduled trigger can fire normally
+- **Randomised schedule:** cron fires at 08:00 CDT (13:00 UTC) on Mon/Wed; a `shuf`-generated random delay of 0–31,200 s (0–8h 40m) spreads the actual burst start uniformly across 08:00–16:40 CDT, ensuring every run completes before 17:00 CDT
+- **Single deploy command:** `bash deploy/aws-deploy.sh traffic-sim` — resolves api02 from `API_PUBLIC_IP_ARRAY[1]` and uw1-web02 from the second entry of `FRONTEND_PUBLIC_IPS_UW1`, rsyncs scripts to each node, runs setup via `sudo env` (config.env is never sent to remote nodes)
+- **Fully config.env-driven:** all parameters controlled via `TRAFFIC_SIM_*` variables — port, payload size, burst duration, schedule days, cron hour (UTC), random window, and enable/disable toggle
+- **New files:** `deploy/traffic-sim/server-setup.sh`, `deploy/traffic-sim/client-setup.sh`, `deploy/traffic-sim/run-traffic.sh`, `deploy/traffic-sim/replication-traffic.service`, `deploy/traffic-sim/README.md`
+- **Logs:** nginx access log on api02 (`/var/log/nginx/replication-access.log`), systemd journal on uw1-web02 (`journalctl -u replication-traffic`), client run log (`/var/log/replication-traffic.log`)
+
+**`aws-deploy.sh` — `traffic-sim` command**
+- New top-level command `bash deploy/aws-deploy.sh traffic-sim` added alongside `init`, `update`, and `status`
+- Targets api02 and uw1-web02 by position in the IP arrays — no additional config required beyond the `TRAFFIC_SIM_*` block in `config.env`
+
+---
+
 ## [2.1.1] — 2026-05-31
 
 ### Fixed

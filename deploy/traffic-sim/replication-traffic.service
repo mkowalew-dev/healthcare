@@ -1,0 +1,18 @@
+[Unit]
+Description=Replication Traffic Simulation (20-min cross-region burst)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Server host injected at setup time; edit /etc/replication-client.conf to change.
+EnvironmentFile=/etc/replication-client.conf
+ExecStart=/opt/replication-client/run-traffic.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=1300
+# Prevent concurrent runs if cron fires twice
+# (systemd will refuse a second start while the first is active)
+
+[Install]
+WantedBy=multi-user.target

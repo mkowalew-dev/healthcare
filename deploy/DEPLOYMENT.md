@@ -155,10 +155,13 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 |----|--------|---------------------|-------|
 | VM1 | use2 + uw1 | ALB security group | 22 (SSH), 80 (HTTP) |
 | VM2 | use2 | VM1 private IPs (both regions) + deployment machine | 22 (SSH), 3001 (API) |
+| VM2 (api02) | use2 | uw1 VPC CIDR (traffic sim client) | 873 (replication server) |
 | VM3 | use2 | VM2 private IP | 22 (SSH), 5432 (PostgreSQL) |
 | VM4 | use2 | VM2 private IP | 22 (SSH), 3002 (Mock) |
 
 VM2's security group must allow port 3001 from **both** VPC CIDRs (use2 and uw1) because Nginx in uw1 proxies API calls cross-region to the API ALB in use2.
+
+Port 873 on api02 must be open from the uw1 VPC CIDR — traffic crosses the Transit Gateway from uw1-web02 (172.31.0.10) to api02 (10.0.1.231). If the two VPCs share a single security group for API nodes, scope the 873 rule narrowly to the uw1 web node's private IP rather than the full VPC CIDR.
 
 ### AWS ALB setup
 
@@ -527,6 +530,86 @@ curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed
 
 ---
 
+## Step 5c — Cross-Region Traffic Simulation (optional)
+
+Installs a scheduled replication traffic generator that drives cross-region Transit Gateway telemetry. The server runs on api02 (us-east-2) and the client runs on uw1-web02 (us-west-1).
+
+**Prerequisites:**
+- Port 873 open on api02's security group from the uw1 VPC CIDR (see security group table above)
+- `TRAFFIC_SIM_*` block configured in `config.env` (defaults work out of the box if IP arrays have ≥ 2 entries)
+
+```bash
+bash deploy/aws-deploy.sh traffic-sim
+```
+
+What this does:
+1. **api02 (server):** installs nginx if absent, generates a 512 MB random payload, configures an nginx server block on port 873, enables `replication-server.service`
+2. **uw1-web02 (client):** installs `replication-traffic.service` (systemd oneshot) and `/etc/cron.d/replication-traffic`
+
+The cron fires at 08:00 CDT (13:00 UTC) every Monday and Wednesday. A random delay of 0–8h 40m spreads the actual burst start across the business-hours window, with every run guaranteed to complete before 17:00 CDT.
+
+**Verify server after deploy:**
+```bash
+ssh -i ~/.ssh/aws-key ubuntu@3.16.152.147 \
+  'curl -s -o /dev/null -w "%{size_download} bytes\n" http://10.0.1.231:873/replication.bin'
+```
+
+**Manual test run (client — fires immediately, no random delay):**
+```bash
+# Terminal 1
+ssh -i ~/.ssh/aws-key ubuntu@13.57.253.142 'sudo systemctl start replication-traffic.service'
+
+# Terminal 2 — watch live
+ssh -i ~/.ssh/aws-key ubuntu@13.57.253.142 'journalctl -u replication-traffic -f'
+```
+
+Expected journal output during a run:
+```
+systemd[1]: Starting Replication Traffic Simulation...
+run-traffic.sh: 2026-06-02T13:00:00Z START run=... host=10.0.1.231 port=873 duration=1200s
+run-traffic.sh: 2026-06-02T13:00:00Z fetch #1 remaining=1199s
+run-traffic.sh: 2026-06-02T13:06:30Z fetch #2 remaining=810s
+...
+run-traffic.sh: 2026-06-02T13:20:00Z END fetches=N elapsed=1200s
+systemd[1]: replication-traffic.service: Deactivated successfully.
+```
+
+The service returns to `inactive (dead)` after each run — this is correct; the cron needs the service to be inactive to start the next scheduled burst.
+
+**Configuration (all in `config.env`):**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRAFFIC_SIM_ENABLED` | `true` | `false` installs the service without the cron |
+| `TRAFFIC_SIM_SERVER_HOST` | `10.0.1.231` | api02 private IP |
+| `TRAFFIC_SIM_PORT` | `873` | nginx listen port (rsync — IANA replication) |
+| `TRAFFIC_SIM_PAYLOAD_SIZE_MB` | `512` | Payload size |
+| `TRAFFIC_SIM_DURATION_SECONDS` | `1200` | Burst duration (20 min) |
+| `TRAFFIC_SIM_SCHEDULE_DAYS` | `1,3` | cron days — Mon, Wed |
+| `TRAFFIC_SIM_START_HOUR_UTC` | `13` | cron fire hour UTC (13:00 = 08:00 CDT) |
+| `TRAFFIC_SIM_RANDOM_WINDOW_S` | `31200` | Max pre-burst delay (8h 40m) |
+
+To change the schedule or disable, edit `config.env` and re-run `bash deploy/aws-deploy.sh traffic-sim`.
+
+**Teardown:**
+```bash
+# uw1-web02
+ssh ubuntu@13.57.253.142 'sudo rm /etc/cron.d/replication-traffic && \
+  sudo systemctl disable --now replication-traffic.service && \
+  sudo rm /etc/systemd/system/replication-traffic.service && \
+  sudo rm -rf /opt/replication-client /etc/replication-client.conf'
+
+# api02
+ssh ubuntu@3.16.152.147 'sudo rm /etc/nginx/sites-enabled/replication-server.conf \
+  /etc/nginx/sites-available/replication-server.conf && \
+  sudo nginx -s reload && \
+  sudo systemctl disable --now replication-server.service && \
+  sudo rm /etc/systemd/system/replication-server.service && \
+  sudo rm -rf /opt/replication-server'
+```
+
+---
+
 ## Step 6 — Splunk OTel Collectors (optional)
 
 Requires `SPLUNK_ACCESS_TOKEN`, `SPLUNK_REALM`, `SPLUNK_PLATFORM_HEC_URL`, and `SPLUNK_PLATFORM_HEC_TOKEN` set in `config.env`.
@@ -653,6 +736,35 @@ bash deploy/local-deploy.sh logs viewer
 # Update PACS code (npm install + PM2 reload, no restart needed)
 bash deploy/local-deploy.sh update all
 ```
+
+### Cross-region traffic simulation
+
+```bash
+# Deploy (or redeploy after config change)
+bash deploy/aws-deploy.sh traffic-sim
+
+# Trigger immediately on uw1-web02 (no random delay — useful for demos)
+ssh -i ~/.ssh/aws-key ubuntu@13.57.253.142 \
+  'sudo systemctl start replication-traffic.service'
+
+# Watch client logs live
+ssh -i ~/.ssh/aws-key ubuntu@13.57.253.142 \
+  'journalctl -u replication-traffic -f'
+
+# Watch server access log on api02
+ssh -i ~/.ssh/aws-key ubuntu@3.16.152.147 \
+  'tail -f /var/log/nginx/replication-access.log'
+
+# Check cron schedule on uw1-web02
+ssh -i ~/.ssh/aws-key ubuntu@13.57.253.142 \
+  'cat /etc/cron.d/replication-traffic'
+
+# Disable schedule without uninstalling (edit config.env, then redeploy)
+# In config.env: TRAFFIC_SIM_ENABLED=false
+bash deploy/aws-deploy.sh traffic-sim
+```
+
+---
 
 ### MyChart scheduled failure injection (ThousandEyes + Splunk APM demo)
 

@@ -484,6 +484,83 @@ update_mock() {
 }
 
 # ════════════════════════════════════════════════════════════
+# TRAFFIC SIM — Cross-region replication traffic simulation
+#
+# Server: api02 (us-east-2)   — nginx on port 873 serving a large payload
+# Client: uw1-web02 (uw1)     — curl loop for 20 min, cron Mon/Wed business hours
+# Traffic path: uw1-web02 → api02 across the Transit Gateway (cross-region)
+# ════════════════════════════════════════════════════════════
+
+init_traffic_sim() {
+  # ── Resolve api02 (server) — second entry in API arrays ──────
+  if [[ ${#API_PUBLIC_IP_ARRAY[@]} -lt 2 ]]; then
+    err "api02 not found — API_PUBLIC_IPS must have at least 2 comma-separated entries in config.env"
+  fi
+  local api02_pub="${API_PUBLIC_IP_ARRAY[1]}"
+  local api02_priv="${API_PRIVATE_IP_ARRAY[1]}"
+
+  # ── Resolve uw1-web02 (client) — second entry in UW1 list ────
+  if [[ -z "${FRONTEND_PUBLIC_IPS_UW1:-}" ]]; then
+    err "FRONTEND_PUBLIC_IPS_UW1 not set in config.env"
+  fi
+  IFS=',' read -ra _UW1_PUB <<< "${FRONTEND_PUBLIC_IPS_UW1}"
+  if [[ ${#_UW1_PUB[@]} -lt 2 ]]; then
+    err "uw1-web02 not found — FRONTEND_PUBLIC_IPS_UW1 must have at least 2 comma-separated entries"
+  fi
+  local uw1web02_pub="${_UW1_PUB[1]}"
+
+  local sim_server_host="${TRAFFIC_SIM_SERVER_HOST:-${api02_priv}}"
+  local sim_port="${TRAFFIC_SIM_PORT:-873}"
+
+  # ── Server: api02 ─────────────────────────────────────────────
+  header "Traffic Sim — Server: api02  (pub: ${api02_pub}  priv: ${api02_priv})"
+
+  info "Syncing traffic-sim scripts to api02..."
+  rsync_to "${SCRIPT_DIR}/traffic-sim/" "${api02_pub}" "~/careconnect/deploy/traffic-sim/"
+
+  info "Running server-setup.sh on api02 (generates ${TRAFFIC_SIM_PAYLOAD_SIZE_MB:-512}MB payload)..."
+  ssh_run "${api02_pub}" \
+    "sudo env \
+      TRAFFIC_SIM_PORT='${sim_port}' \
+      TRAFFIC_SIM_PAYLOAD_SIZE_MB='${TRAFFIC_SIM_PAYLOAD_SIZE_MB:-512}' \
+    bash ~/careconnect/deploy/traffic-sim/server-setup.sh"
+
+  log "Traffic sim server installed on api02 (port ${sim_port})"
+
+  # ── Client: uw1-web02 ─────────────────────────────────────────
+  header "Traffic Sim — Client: uw1-web02  (pub: ${uw1web02_pub})"
+
+  info "Syncing traffic-sim scripts to uw1-web02..."
+  rsync_to "${SCRIPT_DIR}/traffic-sim/" "${uw1web02_pub}" "~/careconnect/deploy/traffic-sim/"
+
+  info "Running client-setup.sh on uw1-web02..."
+  ssh_run "${uw1web02_pub}" \
+    "sudo env \
+      TRAFFIC_SIM_SERVER_HOST='${sim_server_host}' \
+      TRAFFIC_SIM_PORT='${sim_port}' \
+      TRAFFIC_SIM_DURATION_SECONDS='${TRAFFIC_SIM_DURATION_SECONDS:-1200}' \
+      TRAFFIC_SIM_ENABLED='${TRAFFIC_SIM_ENABLED:-true}' \
+      TRAFFIC_SIM_SCHEDULE_DAYS='${TRAFFIC_SIM_SCHEDULE_DAYS:-1,3}' \
+      TRAFFIC_SIM_START_HOUR_UTC='${TRAFFIC_SIM_START_HOUR_UTC:-13}' \
+      TRAFFIC_SIM_RANDOM_WINDOW_S='${TRAFFIC_SIM_RANDOM_WINDOW_S:-31200}' \
+    bash ~/careconnect/deploy/traffic-sim/client-setup.sh"
+
+  log "Traffic sim client installed on uw1-web02"
+
+  echo ""
+  echo "  Verify server:"
+  echo "    ssh ${SSH_USER}@${api02_pub} 'curl -s -o /dev/null -w \"%{size_download} bytes\\n\" http://${api02_priv}:${sim_port}/replication.bin'"
+  echo ""
+  echo "  Test client (immediate, no random delay):"
+  echo "    ssh ${SSH_USER}@${uw1web02_pub} 'sudo systemctl start replication-traffic.service && journalctl -u replication-traffic -f'"
+  echo ""
+  echo "  Logs:"
+  echo "    Server: ssh ${SSH_USER}@${api02_pub} 'tail -f /var/log/nginx/replication-access.log'"
+  echo "    Client: ssh ${SSH_USER}@${uw1web02_pub} 'journalctl -u replication-traffic --since today'"
+  echo ""
+}
+
+# ════════════════════════════════════════════════════════════
 # STATUS — Health check all VMs
 #
 # Web tier:  HTTPS via ALB hostnames — reflects the real user path and works
@@ -690,6 +767,10 @@ USAGE
     esac
     ;;
 
+  traffic-sim)
+    init_traffic_sim
+    ;;
+
   status)
     status_check
     ;;
@@ -712,6 +793,7 @@ USAGE
   COMMANDS:
     init   [db|api|mock|frontend|otel|all]   First-time EC2 provisioning
     update [api|frontend|bff|mock|all]       Rolling code updates (zero-downtime)
+    traffic-sim                               Install cross-region traffic simulation
     status                                    Health check all VMs
 
   MULTI-VM SCALING:
@@ -730,6 +812,7 @@ USAGE
     bash deploy/aws-deploy.sh update api        # push backend changes to all API nodes
     bash deploy/aws-deploy.sh update frontend   # push UI changes to all web nodes
     bash deploy/aws-deploy.sh update bff        # push BFF changes only (no React rebuild)
+    bash deploy/aws-deploy.sh traffic-sim       # install cross-region traffic simulation
     bash deploy/aws-deploy.sh status            # verify all healthy
 
   RECOVERY (re-run a failed step):
