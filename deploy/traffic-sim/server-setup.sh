@@ -49,10 +49,21 @@ echo "==> Creating payload directory"
 mkdir -p "$PAYLOAD_DIR"
 
 echo "==> Generating ${PAYLOAD_SIZE_MB}MB payload"
+EXPECTED_BYTES=$(( PAYLOAD_SIZE_MB * 1024 * 1024 ))
+REGEN=false
 if [[ ! -f "$PAYLOAD_FILE" ]]; then
-    dd if=/dev/urandom of="$PAYLOAD_FILE" bs=1M count="$PAYLOAD_SIZE_MB" status=progress
+    REGEN=true
 else
-    echo "    Payload already exists, skipping generation."
+    ACTUAL_BYTES=$(stat -c%s "$PAYLOAD_FILE" 2>/dev/null || echo 0)
+    if [[ "$ACTUAL_BYTES" -ne "$EXPECTED_BYTES" ]]; then
+        echo "    Size mismatch: have ${ACTUAL_BYTES}B, want ${EXPECTED_BYTES}B — regenerating."
+        REGEN=true
+    else
+        echo "    Payload already exists at correct size (${PAYLOAD_SIZE_MB}MB), skipping."
+    fi
+fi
+if [[ "$REGEN" == "true" ]]; then
+    dd if=/dev/urandom of="$PAYLOAD_FILE" bs=1M count="$PAYLOAD_SIZE_MB" status=progress
 fi
 
 echo "==> Writing nginx site config for port ${SERVER_PORT}"
