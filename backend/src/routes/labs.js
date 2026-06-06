@@ -10,6 +10,9 @@ const router = express.Router();
 router.get('/lis-orders', authenticate, authorize('provider', 'admin'), async (req, res) => {
   try {
     const { patientId } = req.query;
+    const limit  = Math.min(parseInt(req.query.limit  ?? 100, 10), 500);
+    const offset = parseInt(req.query.offset ?? 0, 10);
+
     let whereClause = '1=1';
     const params = [];
     let idx = 1;
@@ -23,6 +26,7 @@ router.get('/lis-orders', authenticate, authorize('provider', 'admin'), async (r
       params.push(patientId);
     }
 
+    params.push(limit, offset);
     const result = await pool.query(`
       SELECT lo.*,
         p.first_name as patient_first, p.last_name as patient_last, p.mrn,
@@ -32,6 +36,7 @@ router.get('/lis-orders', authenticate, authorize('provider', 'admin'), async (r
       LEFT JOIN lab_results lr ON lo.lab_result_id = lr.id
       WHERE ${whereClause}
       ORDER BY lo.ordered_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}
     `, params);
 
     res.json(result.rows);
@@ -64,6 +69,9 @@ router.get('/integration/status', authenticate, authorize('admin'), async (req, 
 router.get('/', authenticate, async (req, res) => {
   try {
     const { patientId, status, panel } = req.query;
+    const limit  = Math.min(parseInt(req.query.limit  ?? 200, 10), 500);
+    const offset = parseInt(req.query.offset ?? 0, 10);
+
     let whereClause = '1=1';
     const params = [];
     let idx = 1;
@@ -86,12 +94,14 @@ router.get('/', authenticate, async (req, res) => {
       params.push(panel);
     }
 
+    params.push(limit, offset);
     const result = await pool.query(`
       SELECT lr.*, pr.first_name as provider_first, pr.last_name as provider_last, pr.specialty
       FROM lab_results lr
       LEFT JOIN providers pr ON lr.provider_id = pr.id
       WHERE ${whereClause}
       ORDER BY lr.ordered_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}
     `, params);
 
     res.json(result.rows);
