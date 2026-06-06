@@ -208,14 +208,20 @@ ECOEOF
     cp -r "${SCRIPT_DIR}/../frontend" "${BUILD_TMP}"
     cd "${BUILD_TMP}"
     npm install --quiet
-    VITE_API_URL="${API_URL:-}" \
-    VITE_SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN}" \
-    VITE_SPLUNK_REALM="${SPLUNK_REALM}" \
-    VITE_APP_ENV="${APP_ENV}" \
-    VITE_APP_VERSION="${APP_VERSION}" \
-    VITE_CLINICAL_HOST="${CLINICAL_HOST}" \
-    VITE_PATIENT_HOST="${PATIENT_HOST}" \
-      npm run build
+    # Write build-time env vars to .env.production so Vite's dotenv loader
+    # picks them up reliably — more robust than inline env var assignments
+    # which can be dropped by npm's process spawning in some environments.
+    cat > "${BUILD_TMP}/.env.production" <<EOF
+VITE_API_URL=${API_URL:-}
+VITE_SPLUNK_RUM_TOKEN=${SPLUNK_RUM_TOKEN}
+VITE_SPLUNK_REALM=${SPLUNK_REALM}
+VITE_APP_ENV=${APP_ENV}
+VITE_APP_VERSION=${APP_VERSION}
+VITE_CLINICAL_HOST=${CLINICAL_HOST}
+VITE_PATIENT_HOST=${PATIENT_HOST:-}
+VITE_MOBILE_HOST=${MOBILE_HOST:-}
+EOF
+    npm run build
 
     rsync -a --delete "${BUILD_TMP}/dist/" "${WEB_ROOT}/"
     chmod -R 755 "${WEB_ROOT}"

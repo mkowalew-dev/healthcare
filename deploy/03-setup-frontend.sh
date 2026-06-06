@@ -142,15 +142,18 @@ cd "${BUILD_TMP}"
 npm install --quiet
 
 # Splunk RUM vars and portal hostnames are baked into the bundle at build time.
-# VITE_CLINICAL_HOST and VITE_PATIENT_HOST enable cross-portal redirect in the browser.
-VITE_API_URL="${API_URL}" \
-VITE_SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN}" \
-VITE_SPLUNK_REALM="${SPLUNK_REALM}" \
-VITE_APP_ENV="${APP_ENV}" \
-VITE_APP_VERSION="${APP_VERSION}" \
-VITE_CLINICAL_HOST="${CLINICAL_HOST}" \
-VITE_PATIENT_HOST="${PATIENT_HOST}" \
-  npm run build
+# Written to .env.production so Vite's dotenv loader picks them up reliably.
+cat > "${BUILD_TMP}/.env.production" <<EOF
+VITE_API_URL=${API_URL}
+VITE_SPLUNK_RUM_TOKEN=${SPLUNK_RUM_TOKEN}
+VITE_SPLUNK_REALM=${SPLUNK_REALM}
+VITE_APP_ENV=${APP_ENV}
+VITE_APP_VERSION=${APP_VERSION}
+VITE_CLINICAL_HOST=${CLINICAL_HOST}
+VITE_PATIENT_HOST=${PATIENT_HOST}
+VITE_MOBILE_HOST=${MOBILE_HOST:-}
+EOF
+npm run build
 
 log "React build complete"
 
