@@ -544,16 +544,16 @@ SVCEOF
       "${SCRIPT_DIR}/../bff/" "${BFF_DIR}/"
 
     # ── Always rewrite .env with current config values ──────────
-    # BFF routes API calls through the internal Nginx upstream (127.0.0.1:BFF_UPSTREAM_PORT)
-    # so they are load-balanced across api_cluster — no single API IP hardcoded.
     BFF_UPSTREAM_PORT="${BFF_UPSTREAM_PORT:-8082}"
-    if [[ -n "${API_PRIVATE_IPS:-}" ]]; then
+    if [[ -n "${API_ALB_DNS:-}" ]]; then
+      _BFF_API_URL="http://${API_ALB_DNS}:${API_PORT:-3001}"
+    elif [[ -n "${API_PRIVATE_IPS:-}" ]]; then
       _BFF_API_URL="http://127.0.0.1:${BFF_UPSTREAM_PORT}"
     elif [[ -n "${API_PRIVATE_URL:-}" ]]; then
       _BFF_API_URL="${API_PRIVATE_URL}"
     else
       _BFF_API_URL="http://localhost:3001"
-      warn "Neither API_PRIVATE_IPS nor API_PRIVATE_URL set — BFF will use localhost"
+      warn "API_ALB_DNS not set — BFF will use localhost fallback"
     fi
     _bff_cors="https://${CLINICAL_HOST:-${FRONTEND_HOST:-localhost}}"
     [[ -n "${PATIENT_HOST:-}" ]] && _bff_cors="${_bff_cors},https://${PATIENT_HOST}"

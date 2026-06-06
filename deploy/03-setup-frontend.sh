@@ -450,12 +450,16 @@ if [[ -n "$BFF_SRC" && -d "$BFF_SRC" ]]; then
     "${BFF_SRC}/" "${BFF_APP_DIR}/"
 
   # Write BFF environment file
-  # BFF calls the internal Nginx upstream (127.0.0.1:BFF_UPSTREAM_PORT)
-  # so all BFF→API traffic is load-balanced across the api_cluster.
+  if [[ -n "${API_ALB_DNS:-}" ]]; then
+    _BFF_API_URL="http://${API_ALB_DNS}:${API_PORT}"
+  else
+    _BFF_API_URL="http://127.0.0.1:${BFF_UPSTREAM_PORT}"
+  fi
+  info "Writing BFF .env (API_URL=${_BFF_API_URL})..."
   cat > "${BFF_APP_DIR}/.env" <<EOF
 NODE_ENV=production
 BFF_PORT=${BFF_PORT}
-API_URL=http://127.0.0.1:${BFF_UPSTREAM_PORT}
+API_URL=${_BFF_API_URL}
 CORS_ORIGIN=https://${FRONTEND_HOST},https://${MOBILE_HOST}
 LOG_LEVEL=info
 SPLUNK_ACCESS_TOKEN=${SPLUNK_ACCESS_TOKEN}
