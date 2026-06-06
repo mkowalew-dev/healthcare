@@ -466,6 +466,7 @@ update_frontend() {
     info "Reloading BFF..."
     ssh_run "${pub_ip}" \
       "sudo env \
+        API_ALB_DNS='${API_ALB_DNS:-}' \
         API_PRIVATE_IPS='${API_PRIVATE_IPS}' \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
@@ -491,9 +492,11 @@ update_bff() {
 
     ssh_run "${pub_ip}" \
       "sudo env \
+        API_ALB_DNS='${API_ALB_DNS:-}' \
         API_PRIVATE_IPS='${API_PRIVATE_IPS}' \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
+        MOBILE_HOST='${MOBILE_HOST:-}' \
         BFF_PORT='${BFF_PORT:-3003}' \
         SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
         SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
