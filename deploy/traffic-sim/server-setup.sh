@@ -1,11 +1,11 @@
 #!/bin/bash
 # Run on api02 (us-east-2) as root.
-# Accepts TRAFFIC_SIM_* vars via 'sudo env KEY=val bash ...' (aws-deploy.sh pattern),
+# Accepts TRAFFIC_SIM_* vars via 'sudo env KEY=val bash ...' (healthcare-deploy.sh pattern),
 # or falls back to sourcing ../config.env for manual runs on the node.
 set -euo pipefail
 
 # ── Config resolution ─────────────────────────────────────────
-# When called via aws-deploy.sh the vars are already in the environment.
+# When called via healthcare-deploy.sh the vars are already in the environment.
 # When run manually on the node, source config.env as a fallback.
 if [[ -z "${TRAFFIC_SIM_PORT:-}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

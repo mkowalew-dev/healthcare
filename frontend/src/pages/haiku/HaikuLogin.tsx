@@ -9,7 +9,7 @@ export default function HaikuLogin() {
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/haiku/inbox';
 
-  const [email, setEmail] = useState('provider@demo.com');
+  const [email, setEmail] = useState('provider@careconnect.demo');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);

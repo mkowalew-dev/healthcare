@@ -240,7 +240,7 @@ case "$ROLE" in
     echo "    pm2 start pacs-server --log /var/log/careconnect/pacs-out.log"
     echo ""
     echo "  RUM: baked into the Vite build via VITE_SPLUNK_RUM_TOKEN."
-    echo "  Re-run:  bash deploy/local-deploy.sh update viewer"
+    echo "  Re-run:  bash deploy/pacs-deploy.sh update viewer"
     ;;
 esac
 echo ""

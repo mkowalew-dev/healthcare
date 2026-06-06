@@ -1,0 +1,96 @@
+# ── Splunk OTel Collector — VM7 (Virtual Nursing Station)
+# Collects: host metrics, VNS application logs (journald)
+# Exports to: Splunk Observability Cloud (metrics) + Splunk Platform (logs)
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      disk:
+      filesystem:
+        exclude_mount_points:
+          mount_points: [/dev, /proc, /sys, /run]
+          match_type: strict
+      network:
+      load:
+      processes:
+
+  # ── VNS application logs (systemd journal) ─────────────────
+  journald/vns:
+    units:
+      - careconnect-vns
+    priority: info
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  resourcedetection:
+    detectors: [system, env, ec2]
+    timeout: 10s
+    override: false
+
+  resource/vns:
+    attributes:
+      - key: deployment.environment
+        value: ${env:APP_ENV}
+        action: upsert
+      - key: service.version
+        value: ${env:APP_VERSION}
+        action: upsert
+      - key: host.role
+        value: vns
+        action: insert
+      - key: facility.type
+        value: virtual-nursing
+        action: insert
+
+exporters:
+  signalfx:
+    access_token: ${env:SPLUNK_ACCESS_TOKEN}
+    realm: ${env:SPLUNK_REALM}
+    timeout: 30s
+
+  splunk_hec/platform:
+    token: ${env:SPLUNK_PLATFORM_HEC_TOKEN}
+    endpoint: ${env:SPLUNK_PLATFORM_HEC_URL}
+    source: careconnect-vns
+    sourcetype: careconnect:log
+    index: o11y_logs
+    timeout: 10s
+    tls:
+      insecure_skip_verify: false
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics]
+      processors: [memory_limiter, resourcedetection, resource/vns, batch]
+      exporters: [signalfx]
+    logs:
+      receivers: [journald/vns]
+      processors: [memory_limiter, resourcedetection, resource/vns, batch]
+      exporters: [splunk_hec/platform]
+
+  telemetry:
+    logs:
+      level: warn

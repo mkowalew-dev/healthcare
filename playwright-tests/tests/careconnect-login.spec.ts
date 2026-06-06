@@ -12,9 +12,9 @@ test.describe('CareConnect - Provider Login', () => {
     const form = page.locator('[data-testid="login-form"]');
     await expect(form).toBeVisible({ timeout: 15_000 });
 
-    // Email is pre-filled and read-only (provider@demo.com)
+    // Email is pre-filled and read-only (provider@careconnect.demo)
     const emailInput = page.locator('[data-testid="login-email-input"]');
-    await expect(emailInput).toHaveValue('provider@demo.com');
+    await expect(emailInput).toHaveValue('provider@careconnect.demo');
 
     // 3. Enter password and submit
     await page.fill('[data-testid="login-password-input"]', PASSWORD);

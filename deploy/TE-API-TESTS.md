@@ -25,8 +25,8 @@ Stable across all seeded deployments — safe to hardcode in step URLs.
 
 | Resource | ID |
 |----------|----|
-| Patient (John Smith — `patient@demo.com`) | `66666666-0000-0000-0000-000000000001` |
-| Provider (Dr. Michael Chen — `provider@demo.com`) | `33333333-0000-0000-0000-000000000001` |
+| Patient (John Smith — `patient@careconnect.demo`) | `66666666-0000-0000-0000-000000000001` |
+| Provider (Dr. Michael Chen — `provider@careconnect.demo`) | `33333333-0000-0000-0000-000000000001` |
 
 ---
 
@@ -105,7 +105,7 @@ Set **API Target Time for View** to 3 s on all tests. Set it to **2 s** on the H
 | Method | `POST` |
 | URL | `https://careconnect.pseudo-co.com/api/auth/login` |
 | Auth | None |
-| Body | `{"email":"provider@demo.com","password":"{{$cc-provider-password}}"}` |
+| Body | `{"email":"provider@careconnect.demo","password":"{{$cc-provider-password}}"}` |
 | Content-Type header | `application/json` |
 
 *Post-Request → Extract variables:*
@@ -676,7 +676,7 @@ This is the most expensive call — full chart aggregation across multiple table
 | Method | `POST` |
 | URL | `https://careconnect.pseudo-co.com/api/auth/login` |
 | Auth | None |
-| Body | `{"email":"admin@demo.com","password":"{{$cc-admin-password}}"}` |
+| Body | `{"email":"admin@careconnect.demo","password":"{{$cc-admin-password}}"}` |
 | Content-Type header | `application/json` |
 
 *Post-Request → Extract variables:*
@@ -774,7 +774,7 @@ This is the most expensive call — full chart aggregation across multiple table
 | Method | `POST` |
 | URL | `https://mobile.pseudo-co.com/api/auth/login` |
 | Auth | None |
-| Body | `{"email":"provider@demo.com","password":"{{$cc-provider-password}}"}` |
+| Body | `{"email":"provider@careconnect.demo","password":"{{$cc-provider-password}}"}` |
 | Content-Type header | `application/json` |
 
 *Post-Request → Extract variables:*
@@ -961,12 +961,12 @@ PROVIDER=33333333-0000-0000-0000-000000000001
 
 TOKEN=$(curl -s -X POST $BASE/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"provider@demo.com","password":"Demo123!"}' \
+  -d '{"email":"provider@careconnect.demo","password":"Demo123!"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 ADMIN_TOKEN=$(curl -s -X POST $BASE/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@demo.com","password":"Demo123!"}' \
+  -d '{"email":"admin@careconnect.demo","password":"Demo123!"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 check() {

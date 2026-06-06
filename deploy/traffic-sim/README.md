@@ -2,7 +2,7 @@
 
 Generates sustained 20-minute traffic bursts from **uw1-web02** (us-west-1) to **api02** (us-east-2) across the Transit Gateway on port 873 (rsync — IANA well-known replication port). Scheduled at a random time during business hours (08:00–17:00 CDT) every Monday and Wednesday.
 
-**Deploy:** `bash deploy/aws-deploy.sh traffic-sim`
+**Deploy:** `bash deploy/healthcare-deploy.sh traffic-sim`
 
 ## Architecture
 

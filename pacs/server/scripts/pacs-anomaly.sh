@@ -5,8 +5,8 @@
 # Called by cron on VM5 to produce a predictable ThousandEyes demo anomaly
 # every weekday during business hours.  Can also be triggered manually via:
 #
-#   bash deploy/local-deploy.sh anomaly enable   # start anomaly now
-#   bash deploy/local-deploy.sh anomaly disable  # stop anomaly now
+#   bash deploy/pacs-deploy.sh anomaly enable   # start anomaly now
+#   bash deploy/pacs-deploy.sh anomaly disable  # stop anomaly now
 #
 # The script reads PORT, JWT_SECRET, ANOMALY_LATENCY_MS, and ANOMALY_JITTER_MS
 # from the server's .env file and calls POST /api/demo/latency using the

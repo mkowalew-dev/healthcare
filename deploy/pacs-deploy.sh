@@ -4,7 +4,7 @@
 #
 # Deploys the PACS radiology system to the PACS VM (VM5) via
 # SSH + rsync.  Reads from the same deploy/config.env as
-# aws-deploy.sh — one source of truth for all configuration.
+# healthcare-deploy.sh — one source of truth for all configuration.
 #
 # PORTALS:
 #   http://<PACS_PUBLIC_IP>:<PACS_SERVER_PORT>  →  DICOMweb API
@@ -13,8 +13,8 @@
 # QUICK START (first-time setup):
 #   1. cp deploy/config.env.example deploy/config.env
 #   2. vi deploy/config.env          # fill in PACS_PUBLIC_IP, PACS_SSH_USER, PACS_SSH_KEY, PACS_JWT_SECRET
-#   3. bash deploy/local-deploy.sh copy-id   # install SSH key on VM5 (one-time)
-#   4. bash deploy/local-deploy.sh init all
+#   3. bash deploy/pacs-deploy.sh copy-id   # install SSH key on VM5 (one-time)
+#   4. bash deploy/pacs-deploy.sh init all
 #
 # COMMANDS:
 #   init   [server|viewer|samples|all]   First-time VM5 provisioning (idempotent)
@@ -49,7 +49,7 @@ if [[ ! -f "$CONFIG" ]]; then
 
     cp deploy/config.env.example deploy/config.env
     vi deploy/config.env          # fill in PACS_PUBLIC_IP, PACS_JWT_SECRET
-    bash deploy/local-deploy.sh init all
+    bash deploy/pacs-deploy.sh init all
 
 HELP
   exit 1
@@ -80,7 +80,7 @@ VIEWER_URL="http://${PACS_PUBLIC_IP}:${PACS_VIEWER_PORT}"
 
 # ── SSH / rsync setup — VM5 uses PACS_SSH_* credentials ─────
 # PACS_SSH_USER / PACS_SSH_KEY are separate from the EC2 SSH_USER / SSH_KEY
-# used by aws-deploy.sh, allowing different key pairs for cloud vs local VMs.
+# used by healthcare-deploy.sh, allowing different key pairs for cloud vs local VMs.
 SSH_USER="${PACS_SSH_USER:-${SSH_USER:-ubuntu}}"
 REMOTE_BASE="/home/${SSH_USER}/careconnect/pacs"
 _pacs_key="${PACS_SSH_KEY:-${SSH_KEY:-}}"
@@ -91,7 +91,7 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=20 \
   ${SSH_KEY_OPT}"
 RSYNC_RSH="ssh ${SSH_OPTS}"
 
-# ── Terminal colors (matches aws-deploy.sh) ──────────────────
+# ── Terminal colors (matches healthcare-deploy.sh) ──────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'
 YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -351,7 +351,7 @@ remote_pm2_enable_startup() {
 # INIT — First-time VM5 provisioning
 # Each function is idempotent: safe to re-run after a failure.
 #
-# Pattern (mirrors aws-deploy.sh):
+# Pattern (mirrors healthcare-deploy.sh):
 #   1. rsync source → VM5 via PACS_PUBLIC_IP
 #   2. SSH to install deps, write .env, start PM2
 # ════════════════════════════════════════════════════════════
@@ -384,7 +384,7 @@ init_server() {
   if [[ "$code" == "200" ]]; then
     log "PACS server healthy at ${SERVER_URL}"
   else
-    warn "Server started — /health returned ${code}. Check: bash deploy/local-deploy.sh logs server"
+    warn "Server started — /health returned ${code}. Check: bash deploy/pacs-deploy.sh logs server"
   fi
 }
 
@@ -417,7 +417,7 @@ init_viewer() {
   if [[ "$code" == "200" ]]; then
     log "PACS viewer ready at ${VIEWER_URL}"
   else
-    warn "Viewer started — check logs if unreachable: bash deploy/local-deploy.sh logs viewer"
+    warn "Viewer started — check logs if unreachable: bash deploy/pacs-deploy.sh logs viewer"
   fi
 
   echo ""
@@ -447,7 +447,7 @@ init_samples() {
       "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server --update-env || true"
   else
     warn "No DICOM files downloaded — check internet connectivity on VM5 and retry"
-    info "Retry: bash deploy/local-deploy.sh init samples"
+    info "Retry: bash deploy/pacs-deploy.sh init samples"
   fi
 }
 
@@ -496,7 +496,7 @@ init_otel() {
 }
 
 # ════════════════════════════════════════════════════════════
-# UPDATE — Rsync + restart (mirrors aws-deploy.sh update_*)
+# UPDATE — Rsync + restart (mirrors healthcare-deploy.sh update_*)
 # ════════════════════════════════════════════════════════════
 
 update_server() {
@@ -514,7 +514,7 @@ update_server() {
 
   info "Zero-downtime reload via PM2..."
   ssh_batch "${PACS_PUBLIC_IP}" \
-    "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server --update-env || echo 'pacs-server not in PM2 — run: bash deploy/local-deploy.sh start server'"
+    "${NVM_INIT}; pm2 describe pacs-server &>/dev/null && pm2 restart pacs-server --update-env || echo 'pacs-server not in PM2 — run: bash deploy/pacs-deploy.sh start server'"
   log "PACS server updated"
 }
 
@@ -585,7 +585,7 @@ restart_viewer() {
 }
 
 # ════════════════════════════════════════════════════════════
-# STATUS — mirrors aws-deploy.sh status_check pattern
+# STATUS — mirrors healthcare-deploy.sh status_check pattern
 # ════════════════════════════════════════════════════════════
 
 status_check() {
@@ -627,7 +627,7 @@ status_check() {
 
   echo -e "  ${BOLD}PM2 Processes on VM5${NC}"
   ssh_batch "${PACS_PUBLIC_IP}" \
-    "${NVM_INIT}; pm2 list 2>/dev/null | grep -E 'pacs-(server|viewer)' || echo '  No PACS processes — run: bash deploy/local-deploy.sh start all'" \
+    "${NVM_INIT}; pm2 list 2>/dev/null | grep -E 'pacs-(server|viewer)' || echo '  No PACS processes — run: bash deploy/pacs-deploy.sh start all'" \
     2>/dev/null || warn "  Could not SSH to ${PACS_PUBLIC_IP} to check PM2"
   echo ""
 
@@ -635,8 +635,8 @@ status_check() {
     log "All ${_ok} checks passed"
   else
     warn "${_ok} passed, ${_fail} failed"
-    info "Logs:    bash deploy/local-deploy.sh logs server"
-    info "Restart: bash deploy/local-deploy.sh start all"
+    info "Logs:    bash deploy/pacs-deploy.sh logs server"
+    info "Restart: bash deploy/pacs-deploy.sh start all"
   fi
 
   echo ""
@@ -670,7 +670,7 @@ latency_set() {
   local ms="${1:-}"
   local jitter="${2:-0}"
   [[ -z "$ms" || ! "$ms" =~ ^[0-9]+$ ]] && \
-    err "Usage: bash deploy/local-deploy.sh latency set <ms> [jitter_ms]"
+    err "Usage: bash deploy/pacs-deploy.sh latency set <ms> [jitter_ms]"
 
   header "Latency Simulation — ${ms}ms (+${jitter}ms jitter)"
 
@@ -694,7 +694,7 @@ latency_set() {
   echo "    1. Open a transaction test targeting ${VIEWER_URL}"
   echo "    2. Load a study — images load slowly"
   echo "    3. ThousandEyes shows the degradation on ${SERVER_URL}/wado"
-  echo "    4. bash deploy/local-deploy.sh latency clear  →  instant recovery"
+  echo "    4. bash deploy/pacs-deploy.sh latency clear  →  instant recovery"
   echo ""
 }
 
@@ -756,14 +756,14 @@ EOF
   echo "    Log:      ~/logs/careconnect/anomaly.log on VM5"
   echo ""
   echo "  Trigger manually (no need to wait for schedule):"
-  echo "    bash deploy/local-deploy.sh anomaly enable"
-  echo "    bash deploy/local-deploy.sh anomaly disable"
+  echo "    bash deploy/pacs-deploy.sh anomaly enable"
+  echo "    bash deploy/pacs-deploy.sh anomaly disable"
 }
 
 anomaly_run() {
   local action="${1:-}"
   [[ "$action" == "enable" || "$action" == "disable" ]] || \
-    err "Usage: bash deploy/local-deploy.sh anomaly [enable|disable]"
+    err "Usage: bash deploy/pacs-deploy.sh anomaly [enable|disable]"
   info "${action} PACS latency anomaly on VM5..."
   ssh_batch "${PACS_PUBLIC_IP}" \
     "bash ${REMOTE_BASE}/server/scripts/pacs-anomaly.sh ${action}"
@@ -780,7 +780,7 @@ show_logs() {
     server) ssh_run "${PACS_PUBLIC_IP}" "pm2 logs pacs-server --lines 80" ;;
     viewer) ssh_run "${PACS_PUBLIC_IP}" "pm2 logs pacs-viewer --lines 80" ;;
     all)    ssh_run "${PACS_PUBLIC_IP}" "pm2 logs --lines 40" ;;
-    *)      err "Usage: bash deploy/local-deploy.sh logs [server|viewer|all]" ;;
+    *)      err "Usage: bash deploy/pacs-deploy.sh logs [server|viewer|all]" ;;
   esac
 }
 
@@ -812,14 +812,14 @@ case "$CMD" in
         echo "  Viewer:  ${VIEWER_URL}"
         echo "  Health:  ${SERVER_URL}/health"
         echo ""
-        echo "  Verify:  bash deploy/local-deploy.sh status"
-        echo "  OTel:    bash deploy/local-deploy.sh init otel  (optional — requires SPLUNK_ACCESS_TOKEN)"
+        echo "  Verify:  bash deploy/pacs-deploy.sh status"
+        echo "  OTel:    bash deploy/pacs-deploy.sh init otel  (optional — requires SPLUNK_ACCESS_TOKEN)"
         echo ""
         ;;
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/local-deploy.sh init [TARGET]
+  Usage: bash deploy/pacs-deploy.sh init [TARGET]
 
   Targets:
     all       Full setup: server → viewer → PM2 autostart → DICOM samples  (recommended)
@@ -849,7 +849,7 @@ USAGE
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/local-deploy.sh update [TARGET]
+  Usage: bash deploy/pacs-deploy.sh update [TARGET]
 
   Targets:
     all     Rsync + restart both server and viewer
@@ -878,7 +878,7 @@ USAGE
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/local-deploy.sh start [server|viewer|all]
+  Usage: bash deploy/pacs-deploy.sh start [server|viewer|all]
 
 USAGE
         exit 1
@@ -898,7 +898,7 @@ USAGE
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/local-deploy.sh stop [server|viewer|all]
+  Usage: bash deploy/pacs-deploy.sh stop [server|viewer|all]
 
 USAGE
         exit 1
@@ -918,7 +918,7 @@ USAGE
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/local-deploy.sh restart [server|viewer|all]
+  Usage: bash deploy/pacs-deploy.sh restart [server|viewer|all]
 
 USAGE
         exit 1
@@ -952,14 +952,14 @@ USAGE
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/local-deploy.sh latency set <ms> [jitter_ms]
-         bash deploy/local-deploy.sh latency clear
-         bash deploy/local-deploy.sh latency status
+  Usage: bash deploy/pacs-deploy.sh latency set <ms> [jitter_ms]
+         bash deploy/pacs-deploy.sh latency clear
+         bash deploy/pacs-deploy.sh latency status
 
   Examples:
-    bash deploy/local-deploy.sh latency set 1500 300   # 1.5s + 300ms jitter
-    bash deploy/local-deploy.sh latency set 3000        # 3s flat delay
-    bash deploy/local-deploy.sh latency clear            # restore native speed
+    bash deploy/pacs-deploy.sh latency set 1500 300   # 1.5s + 300ms jitter
+    bash deploy/pacs-deploy.sh latency set 3000        # 3s flat delay
+    bash deploy/pacs-deploy.sh latency clear            # restore native speed
 
   Updates PACS_IMAGE_LATENCY_MS in deploy/config.env, rewrites the server
   .env on VM5 via SSH, and restarts the PACS server via PM2.
@@ -979,12 +979,12 @@ USAGE
 
   CareConnect PACS — VM5 Deployment Orchestrator
   SSHes to PACS_PUBLIC_IP and manages PACS via rsync + PM2.
-  Reads from deploy/config.env — the same config file as aws-deploy.sh.
+  Reads from deploy/config.env — the same config file as healthcare-deploy.sh.
 
   QUICK START:
     1. cp deploy/config.env.example deploy/config.env
     2. vi deploy/config.env          # set PACS_PUBLIC_IP, SSH_KEY, PACS_JWT_SECRET
-    3. bash deploy/local-deploy.sh init all
+    3. bash deploy/pacs-deploy.sh init all
 
   COMMANDS:
     copy-id                              Install PACS_SSH_KEY on VM5 (run once before init)
@@ -1001,19 +1001,19 @@ USAGE
     logs    [server|viewer|all]          Tail PM2 logs on VM5
 
   COMMON WORKFLOWS:
-    bash deploy/local-deploy.sh copy-id             # install SSH key on VM5 (first time)
-    bash deploy/local-deploy.sh init all            # fresh VM5 setup
-    bash deploy/local-deploy.sh update all          # after git pull
-    bash deploy/local-deploy.sh init samples        # (re)download DICOM images
-    bash deploy/local-deploy.sh status              # verify everything healthy
-    bash deploy/local-deploy.sh init cron           # install scheduled anomaly (run once)
-    bash deploy/local-deploy.sh anomaly enable      # trigger anomaly now (on-demand)
-    bash deploy/local-deploy.sh anomaly disable     # restore normal immediately
-    bash deploy/local-deploy.sh latency set 1500    # manual ad-hoc degradation
-    bash deploy/local-deploy.sh latency clear       # clear manual degradation
-    bash deploy/local-deploy.sh logs server         # debug server issues
+    bash deploy/pacs-deploy.sh copy-id             # install SSH key on VM5 (first time)
+    bash deploy/pacs-deploy.sh init all            # fresh VM5 setup
+    bash deploy/pacs-deploy.sh update all          # after git pull
+    bash deploy/pacs-deploy.sh init samples        # (re)download DICOM images
+    bash deploy/pacs-deploy.sh status              # verify everything healthy
+    bash deploy/pacs-deploy.sh init cron           # install scheduled anomaly (run once)
+    bash deploy/pacs-deploy.sh anomaly enable      # trigger anomaly now (on-demand)
+    bash deploy/pacs-deploy.sh anomaly disable     # restore normal immediately
+    bash deploy/pacs-deploy.sh latency set 1500    # manual ad-hoc degradation
+    bash deploy/pacs-deploy.sh latency clear       # clear manual degradation
+    bash deploy/pacs-deploy.sh logs server         # debug server issues
 
-  CONFIG (deploy/config.env — shared with aws-deploy.sh):
+  CONFIG (deploy/config.env — shared with healthcare-deploy.sh):
     PACS_PUBLIC_IP         VM5 IP address (SSH target + ThousandEyes test target)
     PACS_SSH_USER          SSH login user for VM5 (falls back to SSH_USER)
     PACS_SSH_KEY           Path to SSH private key for VM5 (falls back to SSH_KEY)
@@ -1041,12 +1041,12 @@ USAGE
     HTTP Server test:   http://<PACS_PUBLIC_IP>:<PACS_SERVER_PORT>/probe/large   (~20 MB)
     Page Load test:     http://<PACS_PUBLIC_IP>:<PACS_VIEWER_PORT>
     Transaction:        login → worklist → open study → image loads
-    Scheduled anomaly:  bash deploy/local-deploy.sh init cron  (Mon–Fri 10:00–10:15 by default)
-    On-demand anomaly:  bash deploy/local-deploy.sh anomaly enable|disable
+    Scheduled anomaly:  bash deploy/pacs-deploy.sh init cron  (Mon–Fri 10:00–10:15 by default)
+    On-demand anomaly:  bash deploy/pacs-deploy.sh anomaly enable|disable
 
   RELATED:
-    bash deploy/aws-deploy.sh  init all    # cloud EHR deployment (VM1–VM4)
-    bash deploy/aws-deploy.sh  status      # cloud health check
+    bash deploy/healthcare-deploy.sh  init all    # cloud EHR deployment (VM1–VM4)
+    bash deploy/healthcare-deploy.sh  status      # cloud health check
 
 USAGE
     exit 1

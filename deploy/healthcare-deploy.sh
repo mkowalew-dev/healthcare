@@ -16,8 +16,8 @@
 # QUICK START (fresh deployment):
 #   1. cp deploy/config.env.example deploy/config.env
 #   2. vi deploy/config.env          # fill in EC2 IPs, credentials, tokens
-#   3. bash deploy/aws-deploy.sh init all
-#   4. bash deploy/aws-deploy.sh init otel   # optional: Splunk OTel
+#   3. bash deploy/healthcare-deploy.sh init all
+#   4. bash deploy/healthcare-deploy.sh init otel   # optional: Splunk OTel
 #
 # COMMANDS:
 #   init   [db|api|mock|frontend|otel|all]   First-time EC2 provisioning
@@ -53,7 +53,7 @@ if [[ ! -f "$CONFIG" ]]; then
 
     cp deploy/config.env.example deploy/config.env
     vi deploy/config.env          # fill in AWS EC2 IPs, credentials, tokens
-    bash deploy/aws-deploy.sh init all
+    bash deploy/healthcare-deploy.sh init all
 
 HELP
   exit 1
@@ -127,6 +127,29 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=20 \
   -o ControlMaster=auto -o ControlPath=${SSH_CTL} -o ControlPersist=5m \
   ${SSH_KEY_OPT}"
 RSYNC_RSH="ssh ${SSH_OPTS}"
+
+# ── Smart Care Facility vars ─────────────────────────────────
+SCFP_PUBLIC_IP_1="${SCFP_PUBLIC_IP_1:-}"
+SCFP_PUBLIC_IP_2="${SCFP_PUBLIC_IP_2:-}"
+SCFP_PORT="${SCFP_PORT:-3030}"
+SCFP_ROOM_COUNT="${SCFP_ROOM_COUNT:-24}"
+SCFP_EVENT_INTERVAL_MS="${SCFP_EVENT_INTERVAL_MS:-8000}"
+
+VNS_PUBLIC_IP_1="${VNS_PUBLIC_IP_1:-}"
+VNS_PUBLIC_IP_2="${VNS_PUBLIC_IP_2:-}"
+VNS_PORT="${VNS_PORT:-3031}"
+VNS_HOST="${VNS_HOST:-}"
+SCFP_VNS_HOST="${SCFP_VNS_HOST:-}"   # AppGW frontend IP for SCFP (Central US internal AppGW)
+CPM_VNS_HOST="${CPM_VNS_HOST:-}"      # AppGW frontend IP for CPM  (Central US internal AppGW)
+# Optional: private IP of VM2 API gateway — enables EHR note integration from VNS
+VNS_API_HOST="${VNS_API_HOST:-$(echo "${API_PRIVATE_IPS}" | cut -d, -f1)}"
+VNS_API_PORT="${VNS_API_PORT:-3001}"
+
+CPM_PUBLIC_IP_1="${CPM_PUBLIC_IP_1:-}"
+CPM_PUBLIC_IP_2="${CPM_PUBLIC_IP_2:-}"
+CPM_PORT="${CPM_PORT:-3032}"
+CPM_DEVICE_COUNT="${CPM_DEVICE_COUNT:-20}"
+CPM_VITAL_INTERVAL_MS="${CPM_VITAL_INTERVAL_MS:-15000}"
 
 # ── Terminal colors ──────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'
@@ -256,6 +279,7 @@ init_api() {
         DB_USER='${DB_USER:-careconnect}' \
         DB_PASSWORD='${DB_PASSWORD}' \
         JWT_SECRET='${JWT_SECRET}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
         FRONTEND_PRIVATE_IPS='${FRONTEND_PRIVATE_IPS}' \
         CLINICAL_HOST='${CLINICAL_HOST}' \
         PATIENT_HOST='${PATIENT_HOST:-}' \
@@ -358,6 +382,16 @@ init_otel() {
   if [[ -n "${MOCK_PUBLIC_IP:-}" ]]; then
     _otel_run "${MOCK_PUBLIC_IP}" "mock" "Mock External Services"
   fi
+
+  for _ip in "${SCFP_PUBLIC_IP_1:-}" "${SCFP_PUBLIC_IP_2:-}"; do
+    [[ -n "$_ip" ]] && _otel_run "$_ip" "scfp" "VM6 SCFP Smart Care Facility"
+  done
+  for _ip in "${VNS_PUBLIC_IP_1:-}" "${VNS_PUBLIC_IP_2:-}"; do
+    [[ -n "$_ip" ]] && _otel_run "$_ip" "vns" "VM7 VNS Virtual Nursing Station"
+  done
+  for _ip in "${CPM_PUBLIC_IP_1:-}" "${CPM_PUBLIC_IP_2:-}"; do
+    [[ -n "$_ip" ]] && _otel_run "$_ip" "cpm" "VM8 CPM Continuous Patient Monitoring"
+  done
 }
 
 # ════════════════════════════════════════════════════════════
@@ -386,6 +420,7 @@ update_api() {
         DB_HOST='${DB_HOST:-}' \
         DB_NAME='${DB_NAME:-careconnect}' \
         DB_USER='${DB_USER:-careconnect}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
         APP_VERSION='${APP_VERSION:-1.0.0}' \
         LAB_RESULT_INTERVAL_MS='${LAB_RESULT_INTERVAL_MS:-900000}' \
         LAB_MIN_AGE_MS='${LAB_MIN_AGE_MS:-900000}' \
@@ -481,6 +516,176 @@ update_mock() {
   ssh_run "${MOCK_PUBLIC_IP}" "sudo bash ~/careconnect/deploy/04-update.sh mock"
 
   log "Mock services updated"
+}
+
+# ════════════════════════════════════════════════════════════
+# SMART CARE FACILITY — VM6 (SCFP), VM7 (VNS), VM8 (CPM)
+#
+# All three VMs follow the same init/update pattern:
+#   1. rsync source to ~/careconnect/ on the EC2 instance
+#   2. ssh "sudo env KEY=val... bash ~/careconnect/deploy/XX-setup-YYY.sh"
+# ════════════════════════════════════════════════════════════
+
+init_scfp() {
+  [[ -z "${SCFP_PUBLIC_IP_1:-}" ]] && err "SCFP_PUBLIC_IP_1 not set in config.env"
+  for _ip in "${SCFP_PUBLIC_IP_1}" "${SCFP_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    header "VM6 — Smart Care Facility Platform  (${_ip})"
+
+    info "Syncing SCFP source and deploy scripts..."
+    rsync_to "${ROOT_DIR}/scfp/" "${_ip}" "~/careconnect/scfp/" \
+      --exclude 'node_modules'
+    sync_deploy "${_ip}"
+
+    info "Running 07-setup-scfp.sh..."
+    ssh_run "${_ip}" \
+      "sudo env \
+        SCFP_PORT='${SCFP_PORT}' \
+        SCFP_ROOM_COUNT='${SCFP_ROOM_COUNT}' \
+        SCFP_EVENT_INTERVAL_MS='${SCFP_EVENT_INTERVAL_MS}' \
+        SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
+        SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
+        APP_ENV='${APP_ENV:-production}' \
+        APP_VERSION='${APP_VERSION:-1.0.0}' \
+      bash ~/careconnect/deploy/07-setup-scfp.sh"
+  done
+  log "SCFP VMs provisioned"
+}
+
+init_vns() {
+  [[ -z "${VNS_PUBLIC_IP_1:-}" ]] && err "VNS_PUBLIC_IP_1 not set in config.env"
+  for _ip in "${VNS_PUBLIC_IP_1}" "${VNS_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    header "VM7 — Virtual Nursing Station  (${_ip})"
+
+    info "Syncing VNS source and deploy scripts..."
+    rsync_to "${ROOT_DIR}/vns/" "${_ip}" "~/careconnect/vns/" \
+      --exclude 'node_modules'
+    sync_deploy "${_ip}"
+
+    info "Running 08-setup-vns.sh..."
+    ssh_run "${_ip}" \
+      "sudo env \
+        VNS_PORT='${VNS_PORT}' \
+        VNS_HOST='${VNS_HOST:-}' \
+        SCFP_HOST='${SCFP_VNS_HOST:-}' \
+        SCFP_PORT='${SCFP_PORT}' \
+        CPM_HOST='${CPM_VNS_HOST:-}' \
+        CPM_PORT='${CPM_PORT}' \
+        API_HOST='${VNS_API_HOST:-}' \
+        API_PORT='${VNS_API_PORT:-3001}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
+        SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
+        SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
+        APP_ENV='${APP_ENV:-production}' \
+        APP_VERSION='${APP_VERSION:-1.0.0}' \
+      bash ~/careconnect/deploy/08-setup-vns.sh"
+  done
+  log "VNS VMs provisioned"
+}
+
+init_cpm() {
+  [[ -z "${CPM_PUBLIC_IP_1:-}" ]] && err "CPM_PUBLIC_IP_1 not set in config.env"
+  for _ip in "${CPM_PUBLIC_IP_1}" "${CPM_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    header "VM8 — Continuous Patient Monitoring  (${_ip})"
+
+    info "Syncing CPM source and deploy scripts..."
+    rsync_to "${ROOT_DIR}/cpm/" "${_ip}" "~/careconnect/cpm/" \
+      --exclude 'node_modules'
+    sync_deploy "${_ip}"
+
+    info "Running 09-setup-cpm.sh..."
+    ssh_run "${_ip}" \
+      "sudo env \
+        CPM_PORT='${CPM_PORT}' \
+        CPM_DEVICE_COUNT='${CPM_DEVICE_COUNT}' \
+        CPM_VITAL_INTERVAL_MS='${CPM_VITAL_INTERVAL_MS}' \
+        SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
+        SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
+        APP_ENV='${APP_ENV:-production}' \
+        APP_VERSION='${APP_VERSION:-1.0.0}' \
+      bash ~/careconnect/deploy/09-setup-cpm.sh"
+  done
+  log "CPM VMs provisioned"
+}
+
+update_scfp() {
+  [[ -z "${SCFP_PUBLIC_IP_1:-}" ]] && err "SCFP_PUBLIC_IP_1 not set in config.env"
+  for _ip in "${SCFP_PUBLIC_IP_1}" "${SCFP_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    header "Update SCFP  (${_ip})"
+
+    rsync_to "${ROOT_DIR}/scfp/" "${_ip}" "~/careconnect/scfp/" \
+      --exclude 'node_modules'
+    sync_deploy "${_ip}"
+
+    ssh_run "${_ip}" \
+      "sudo env \
+        SCFP_PORT='${SCFP_PORT}' \
+        SCFP_ROOM_COUNT='${SCFP_ROOM_COUNT}' \
+        SCFP_EVENT_INTERVAL_MS='${SCFP_EVENT_INTERVAL_MS}' \
+        SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
+        SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
+        APP_ENV='${APP_ENV:-production}' \
+        APP_VERSION='${APP_VERSION:-1.0.0}' \
+      bash ~/careconnect/deploy/07-setup-scfp.sh"
+  done
+  log "SCFP updated"
+}
+
+update_vns() {
+  [[ -z "${VNS_PUBLIC_IP_1:-}" ]] && err "VNS_PUBLIC_IP_1 not set in config.env"
+  for _ip in "${VNS_PUBLIC_IP_1}" "${VNS_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    header "Update VNS  (${_ip})"
+
+    rsync_to "${ROOT_DIR}/vns/" "${_ip}" "~/careconnect/vns/" \
+      --exclude 'node_modules'
+    sync_deploy "${_ip}"
+
+    ssh_run "${_ip}" \
+      "sudo env \
+        VNS_PORT='${VNS_PORT}' \
+        VNS_HOST='${VNS_HOST:-}' \
+        SCFP_HOST='${SCFP_VNS_HOST:-}' \
+        SCFP_PORT='${SCFP_PORT}' \
+        CPM_HOST='${CPM_VNS_HOST:-}' \
+        CPM_PORT='${CPM_PORT}' \
+        API_HOST='${VNS_API_HOST:-}' \
+        API_PORT='${VNS_API_PORT:-3001}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
+        SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
+        SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
+        APP_ENV='${APP_ENV:-production}' \
+        APP_VERSION='${APP_VERSION:-1.0.0}' \
+      bash ~/careconnect/deploy/08-setup-vns.sh"
+  done
+  log "VNS updated"
+}
+
+update_cpm() {
+  [[ -z "${CPM_PUBLIC_IP_1:-}" ]] && err "CPM_PUBLIC_IP_1 not set in config.env"
+  for _ip in "${CPM_PUBLIC_IP_1}" "${CPM_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    header "Update CPM  (${_ip})"
+
+    rsync_to "${ROOT_DIR}/cpm/" "${_ip}" "~/careconnect/cpm/" \
+      --exclude 'node_modules'
+    sync_deploy "${_ip}"
+
+    ssh_run "${_ip}" \
+      "sudo env \
+        CPM_PORT='${CPM_PORT}' \
+        CPM_DEVICE_COUNT='${CPM_DEVICE_COUNT}' \
+        CPM_VITAL_INTERVAL_MS='${CPM_VITAL_INTERVAL_MS}' \
+        SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
+        SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
+        APP_ENV='${APP_ENV:-production}' \
+        APP_VERSION='${APP_VERSION:-1.0.0}' \
+      bash ~/careconnect/deploy/09-setup-cpm.sh"
+  done
+  log "CPM updated"
 }
 
 # ════════════════════════════════════════════════════════════
@@ -652,6 +857,30 @@ status_check() {
       "curl -sf http://localhost:${MOCK_PORT:-3002}/health > /dev/null"
   fi
 
+  for _ip in "${SCFP_PUBLIC_IP_1:-}" "${SCFP_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    echo ""
+    echo -e "  ${BOLD}SCFP  Smart Care Facility  pub: ${_ip}${NC}"
+    _check_via_ssh "SCFP :${SCFP_PORT}  /health  (via SSH)" "${_ip}" \
+      "curl -sf http://localhost:${SCFP_PORT:-3030}/health > /dev/null"
+  done
+
+  for _ip in "${VNS_PUBLIC_IP_1:-}" "${VNS_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    echo ""
+    echo -e "  ${BOLD}VNS   Virtual Nursing      pub: ${_ip}${NC}"
+    _check_via_ssh "VNS  :${VNS_PORT}  /health  (via SSH)" "${_ip}" \
+      "curl -sf http://localhost:${VNS_PORT:-3031}/health > /dev/null"
+  done
+
+  for _ip in "${CPM_PUBLIC_IP_1:-}" "${CPM_PUBLIC_IP_2:-}"; do
+    [[ -z "$_ip" ]] && continue
+    echo ""
+    echo -e "  ${BOLD}CPM   Patient Monitoring   pub: ${_ip}${NC}"
+    _check_via_ssh "CPM  :${CPM_PORT}  /health  (via SSH)" "${_ip}" \
+      "curl -sf http://localhost:${CPM_PORT:-3032}/health > /dev/null"
+  done
+
   echo ""
   if [[ $_fail -eq 0 ]]; then
     log "All ${_ok} checks passed"
@@ -694,6 +923,9 @@ case "$CMD" in
       mock)     init_mock ;;
       frontend) init_frontend ;;
       otel)     init_otel ;;
+      scfp)     init_scfp ;;
+      vns)      init_vns ;;
+      cpm)      init_cpm ;;
       all)
         info "Full deployment: DB → Mock → API → Frontend  (~8–12 min per tier node)"
         echo ""
@@ -702,10 +934,15 @@ case "$CMD" in
         init_api
         init_frontend
         echo ""
-        log "All VMs provisioned."
+        log "Core EHR VMs provisioned."
         echo ""
-        echo "  Verify:  bash deploy/aws-deploy.sh status"
-        echo "  OTel:    bash deploy/aws-deploy.sh init otel   (optional)"
+        echo "  Smart Care Facility (optional — set *_PUBLIC_IP in config.env first):"
+        [[ -n "${SCFP_PUBLIC_IP_1:-}" ]] && echo "    bash deploy/healthcare-deploy.sh init scfp"
+        [[ -n "${VNS_PUBLIC_IP_1:-}"  ]] && echo "    bash deploy/healthcare-deploy.sh init vns"
+        [[ -n "${CPM_PUBLIC_IP_1:-}"  ]] && echo "    bash deploy/healthcare-deploy.sh init cpm"
+        echo ""
+        echo "  Verify:  bash deploy/healthcare-deploy.sh status"
+        echo "  OTel:    bash deploy/healthcare-deploy.sh init otel   (optional)"
         echo ""
         echo "  Portals (via Global Accelerator):"
         echo "    Clinical: https://${CLINICAL_HOST}"
@@ -720,15 +957,20 @@ case "$CMD" in
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/aws-deploy.sh init [TARGET]
+  Usage: bash deploy/healthcare-deploy.sh init [TARGET]
 
-  Targets:
+  Core EHR targets:
     all       Full deployment in order: db → mock → api → frontend  (~10 min)
     db        VM3: PostgreSQL 17, configure pg_hba for all API nodes
     mock      VM4: Mock external services (Surescripts, Quest, LabCorp, Twilio, SendGrid)
     api       VM2s: Node.js 20, PM2, seed database, systemd service (loops over all API nodes)
     frontend  VM1s: React multi-page build, Nginx dual-portal config, BFF (loops over all web nodes)
     otel      All VMs: Splunk OTel Collector  (run after 'all')
+
+  Smart Care Facility targets (set *_PUBLIC_IP in config.env first):
+    scfp      VM6: Smart Care Facility Platform (room monitoring + fall detection, port 3030)
+    vns       VM7: Virtual Nursing Station (virtual nursing + remote oversight, port 3031)
+    cpm       VM8: Continuous Patient Monitoring (predictive monitoring + NEWS2, port 3032)
 
   Each target is idempotent — safe to re-run after a partial failure.
 
@@ -744,22 +986,33 @@ USAGE
       frontend) update_frontend ;;
       bff)      update_bff ;;
       mock)     update_mock ;;
+      scfp)     update_scfp ;;
+      vns)      update_vns ;;
+      cpm)      update_cpm ;;
       all)
         update_api
         update_frontend
         update_mock
+        [[ -n "${SCFP_PUBLIC_IP_1:-}" ]] && update_scfp
+        [[ -n "${VNS_PUBLIC_IP_1:-}"  ]] && update_vns
+        [[ -n "${CPM_PUBLIC_IP_1:-}"  ]] && update_cpm
         ;;
       *)
         cat <<'USAGE'
 
-  Usage: bash deploy/aws-deploy.sh update [TARGET]
+  Usage: bash deploy/healthcare-deploy.sh update [TARGET]
 
-  Targets:
-    all       Update api + frontend + mock across all nodes
+  Core EHR targets:
+    all       Update api + frontend + mock (+ scfp/vns/cpm if IPs set) across all nodes
     api       rsync backend → all API VMs, PM2 zero-downtime reload (sequential)
     frontend  rsync frontend + bff → all web VMs, React rebuild + BFF restart (sequential)
     bff       rsync bff → all web VMs, BFF restart only  (skips React rebuild ~2 min)
     mock      rsync mock-services.js → VM4, service restart
+
+  Smart Care Facility targets:
+    scfp      rsync scfp → VM6, service restart
+    vns       rsync vns → VM7, service restart
+    cpm       rsync cpm → VM8, service restart
 
 USAGE
         exit 1
@@ -787,14 +1040,14 @@ USAGE
   QUICK START (first-time deployment):
     1. cp deploy/config.env.example deploy/config.env
     2. vi deploy/config.env           # set EC2 IPs, credentials, Splunk tokens
-    3. bash deploy/aws-deploy.sh init all
-    4. bash deploy/aws-deploy.sh init otel   # optional: Splunk OTel Collectors
+    3. bash deploy/healthcare-deploy.sh init all
+    4. bash deploy/healthcare-deploy.sh init otel   # optional: Splunk OTel Collectors
 
   COMMANDS:
-    init   [db|api|mock|frontend|otel|all]   First-time EC2 provisioning
-    update [api|frontend|bff|mock|all]       Rolling code updates (zero-downtime)
-    traffic-sim                               Install cross-region traffic simulation
-    status                                    Health check all VMs
+    init   [db|api|mock|frontend|otel|scfp|vns|cpm|all]   First-time EC2 provisioning
+    update [api|frontend|bff|mock|scfp|vns|cpm|all]       Rolling code updates (zero-downtime)
+    traffic-sim                                             Install cross-region traffic simulation
+    status                                                  Health check all VMs
 
   MULTI-VM SCALING:
     Set comma-separated IP lists in config.env:
@@ -808,15 +1061,21 @@ USAGE
     init db  →  init mock  →  init api  →  init frontend
 
   COMMON WORKFLOWS:
-    bash deploy/aws-deploy.sh init all          # fresh environment
-    bash deploy/aws-deploy.sh update api        # push backend changes to all API nodes
-    bash deploy/aws-deploy.sh update frontend   # push UI changes to all web nodes
-    bash deploy/aws-deploy.sh update bff        # push BFF changes only (no React rebuild)
-    bash deploy/aws-deploy.sh traffic-sim       # install cross-region traffic simulation
-    bash deploy/aws-deploy.sh status            # verify all healthy
+    bash deploy/healthcare-deploy.sh init all          # fresh environment (core EHR VMs)
+    bash deploy/healthcare-deploy.sh init scfp         # VM6: Smart Care Facility Platform
+    bash deploy/healthcare-deploy.sh init vns          # VM7: Virtual Nursing Station
+    bash deploy/healthcare-deploy.sh init cpm          # VM8: Continuous Patient Monitoring
+    bash deploy/healthcare-deploy.sh update api        # push backend changes to all API nodes
+    bash deploy/healthcare-deploy.sh update frontend   # push UI changes to all web nodes
+    bash deploy/healthcare-deploy.sh update bff        # push BFF changes only (no React rebuild)
+    bash deploy/healthcare-deploy.sh update scfp       # push SCFP changes to VM6
+    bash deploy/healthcare-deploy.sh update vns        # push VNS changes to VM7
+    bash deploy/healthcare-deploy.sh update cpm        # push CPM changes to VM8
+    bash deploy/healthcare-deploy.sh traffic-sim       # install cross-region traffic simulation
+    bash deploy/healthcare-deploy.sh status            # verify all healthy
 
   RECOVERY (re-run a failed step):
-    bash deploy/aws-deploy.sh init api          # idempotent, safe to retry
+    bash deploy/healthcare-deploy.sh init api          # idempotent, safe to retry
 
 USAGE
     exit 1

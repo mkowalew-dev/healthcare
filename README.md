@@ -1,6 +1,6 @@
 # CareConnect EHR
 
-**v2.1.0** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
+**v2.4.0** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
 
 ## Tech Stack
 
@@ -18,9 +18,9 @@
 
 | Role | Email | Password | Portal |
 |------|-------|----------|--------|
-| **Patient** | `patient@demo.com` | `Demo123!` | mychart.pseudo-co.com |
-| **Provider** | `provider@demo.com` | `Demo123!` | careconnect.pseudo-co.com · mobile.pseudo-co.com |
-| **Admin** | `admin@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
+| **Patient** | `patient@careconnect.demo` | `Demo123!` | mychart.pseudo-co.com |
+| **Provider** | `provider@careconnect.demo` | `Demo123!` | careconnect.pseudo-co.com · mobile.pseudo-co.com |
+| **Admin** | `admin@careconnect.demo` | `Demo123!` | careconnect.pseudo-co.com |
 | **Radiologist** | `dr.chen@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
 | **Radiologist** | `dr.patel@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
 | **CT/MRI Tech** | `tech.jones@careconnect.demo` | `Demo123!` | pacs.pseudo-co.com:5174 |
@@ -94,6 +94,22 @@ Modelled after EPIC Haiku. Provider-only PWA optimised for phones and tablets.
 - **Patients** — Assigned patient worklist with live search; urgency signals (critical lab count, today's appointment flag)
 - **Quick View** — At-a-glance patient chart: latest vitals grid, allergies, problem list, recent labs, active medications
 - **Schedule** — Today's appointment timeline with status chips and chief complaint; taps through to Quick View
+
+### Smart Care Facility Platform (Azure — optional)
+
+Three additional services extend the demo with an ambient intelligence and virtual care layer, deployed to Azure VMs in two regions. Each is a standalone Node.js service managed via `healthcare-deploy.sh`.
+
+| Service | VM | Region | Port | Function |
+|---------|-----|--------|------|----------|
+| **SCFP** — Smart Care Facility Platform | VM6a + VM6b | Azure Central US | 3030 | AI-powered room monitoring, fall detection, bed sensor arrays, staff workflow optimization |
+| **VNS** — Virtual Nursing Station | VM7a + VM7b | Azure West US 2 | 3031 (HTTPS) | Virtual nursing sessions, aggregated alert triage, patient assessments, EHR documentation, shift handover |
+| **CPM** — Continuous Patient Monitoring | VM8a + VM8b | Azure Central US | 3032 | Predictive patient monitoring, NEWS2 Early Warning Score, deterioration trend detection, IoT device registry |
+
+VNS is fronted by a public Azure Application Gateway (`vns.pseudo-co.com`, SSL termination at AppGW). SCFP and CPM are behind internal Application Gateways. VNS aggregates alerts from SCFP and CPM cross-region, and writes nursing assessments back to the CareConnect EHR via `POST /api/notes/service`.
+
+**Smart Care Portal:** `https://vns.pseudo-co.com/` — four-tab dashboard (Command Center, Rooms & Sensors, Patient Monitoring, Nursing Sessions). Demo credentials: same `@careconnect.demo` accounts as the EHR.
+
+**Deploy:** `bash deploy/healthcare-deploy.sh init scfp` → `init cpm` → `init vns`
 
 ---
 

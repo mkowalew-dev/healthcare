@@ -25,7 +25,7 @@ const IDS = {
   deptUrgent:      '11111111-0000-0000-0000-000000000014',
 
   // Provider user accounts (12)
-  userP1:  '22222222-0000-0000-0000-000000000001', // provider@demo.com
+  userP1:  '22222222-0000-0000-0000-000000000001', // provider@careconnect.demo
   userP2:  '22222222-0000-0000-0000-000000000002',
   userP3:  '22222222-0000-0000-0000-000000000003',
   userP4:  '22222222-0000-0000-0000-000000000004',
@@ -53,7 +53,7 @@ const IDS = {
   prov12: '33333333-0000-0000-0000-000000000012', // Dr. Rachel Cooper - Urgent Care
 
   // Patient user accounts (25)
-  userPt1:  '44444444-0000-0000-0000-000000000001', // DEMO: patient@demo.com
+  userPt1:  '44444444-0000-0000-0000-000000000001', // DEMO: patient@careconnect.demo
   userPt2:  '44444444-0000-0000-0000-000000000002',
   userPt3:  '44444444-0000-0000-0000-000000000003',
   userPt4:  '44444444-0000-0000-0000-000000000004',
@@ -159,7 +159,7 @@ async function seed() {
 
     // ========== PROVIDER USERS (12) ==========
     for (const [id, email] of [
-      [IDS.userP1,  'provider@demo.com'],
+      [IDS.userP1,  'provider@careconnect.demo'],
       [IDS.userP2,  'dr.williams@careconnect.demo'],
       [IDS.userP3,  'dr.rodriguez@careconnect.demo'],
       [IDS.userP4,  'dr.thompson@careconnect.demo'],
@@ -216,13 +216,13 @@ async function seed() {
     // ========== ADMIN USER ==========
     await client.query(
       'INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)',
-      [IDS.userAdmin, 'admin@demo.com', demoPassword, 'admin']
+      [IDS.userAdmin, 'admin@careconnect.demo', demoPassword, 'admin']
     );
     console.log('✅ Admin user seeded');
 
     // ========== PATIENT USERS (25) ==========
     for (const [id, email] of [
-      [IDS.userPt1,  'patient@demo.com'],
+      [IDS.userPt1,  'patient@careconnect.demo'],
       [IDS.userPt2,  'mary.johnson@email.com'],
       [IDS.userPt3,  'robert.davis@email.com'],
       [IDS.userPt4,  'jennifer.wilson@email.com'],
@@ -1694,11 +1694,11 @@ PLAN:
     console.log('═══════════════════════════════════════════');
     console.log('  DEMO LOGIN CREDENTIALS');
     console.log('═══════════════════════════════════════════');
-    console.log('  Patient:  patient@demo.com  / Demo123!');
+    console.log('  Patient:  patient@careconnect.demo  / Demo123!');
     console.log('           (John Smith, MRN000001)');
-    console.log('  Provider: provider@demo.com / Demo123!');
+    console.log('  Provider: provider@careconnect.demo / Demo123!');
     console.log('           (Dr. Michael Chen, Internal Medicine)');
-    console.log('  Admin:    admin@demo.com    / Demo123!');
+    console.log('  Admin:    admin@careconnect.demo    / Demo123!');
     console.log('═══════════════════════════════════════════\n');
 
   } catch (err) {

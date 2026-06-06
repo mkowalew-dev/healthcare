@@ -175,6 +175,12 @@ ECOEOF
       log "Lab simulator: interval=${LAB_RESULT_INTERVAL_MS}ms, min_age=${LAB_MIN_AGE_MS:-${LAB_RESULT_INTERVAL_MS}}ms"
     fi
 
+    # Service-to-service token (shared with VNS for EHR note integration)
+    if [[ -n "${SERVICE_TOKEN:-}" ]]; then
+      set_env SERVICE_TOKEN "${SERVICE_TOKEN}" "${APP_DIR}/.env"
+      log "SERVICE_TOKEN updated"
+    fi
+
     # MyChart scheduled failure injection (MYCHART_FAILURE_ENABLED must be set to activate)
     if [[ -n "${MYCHART_FAILURE_ENABLED:-}" ]]; then
       set_env MYCHART_FAILURE_ENABLED  "${MYCHART_FAILURE_ENABLED}"       "${APP_DIR}/.env"

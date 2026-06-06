@@ -1,5 +1,5 @@
 # CareConnect EHR — Deployment Guide
-## AWS Cloud (EHR) + Local Machine (PACS) · Ubuntu 22.04 LTS · Four-VM + Local Architecture
+## Multi-Cloud (AWS EHR + Azure Smart Care) + Local Machine (PACS) · Ubuntu 22.04 LTS
 
 ---
 
@@ -9,14 +9,16 @@
 
 | Script | Where it runs | What it manages |
 |--------|--------------|-----------------|
-| `deploy/aws-deploy.sh` | Any machine with SSH access to EC2 | Cloud EHR (VM1–VM4) |
-| `deploy/local-deploy.sh` | PACS VM (local) | Local PACS radiology system |
+| `deploy/healthcare-deploy.sh` | Any machine with SSH access to VMs | EHR core (VM1–VM4, AWS) · Smart Care (VM6–VM8, Azure) |
+| `deploy/pacs-deploy.sh` | PACS VM (local) | Local PACS radiology system |
 
 Both read from **`deploy/config.env`** — one source of truth for all configuration.
 
 ---
 
-**Web-only multi-region:** VM1 (Nginx + BFF + React) runs in both us-east-2 and us-west-1. VM2 (API), VM3 (DB), and VM4 (Mock) stay in us-east-2. AWS Global Accelerator routes each user to the nearest healthy web region; both regions proxy API calls to the same internal ALB in us-east-2. The PACS system runs on a local VM (VM5) and is managed entirely by `local-deploy.sh`.
+**Web-only multi-region:** VM1 (Nginx + BFF + React) runs in both us-east-2 and us-west-1. VM2 (API), VM3 (DB), and VM4 (Mock) stay in us-east-2. AWS Global Accelerator routes each user to the nearest healthy web region; both regions proxy API calls to the same internal ALB in us-east-2. The PACS system runs on a local VM (VM5) and is managed entirely by `pacs-deploy.sh`.
+
+**Smart Care Facility Platform (VM6–VM8, Azure — two regions):** Three additional VMs simulate AI-powered room monitoring, predictive patient monitoring, and virtual nursing. VM7 (VNS) deploys to **West US 2** behind an Azure Application Gateway (HTTPS :443, SSL termination); VM6 (SCFP) and VM8 (CPM) deploy to **Central US**. This gives ThousandEyes two observable cross-region hops within Azure (VNS → SCFP, VNS → CPM) plus the cross-cloud edge from Azure (VM7) to AWS (VM2) on every nursing assessment — all rendered as distinct nodes in ThousandEyes Cloud Insights. Each VM is an independent Node.js service, deployed via the same `healthcare-deploy.sh` orchestrator and configured entirely from `config.env`. All three are Splunk APM-instrumented and forward logs to Splunk Platform via HEC.
 
 ```
   Internet
@@ -39,7 +41,7 @@ Both read from **`deploy/config.env`** — one source of truth for all configura
                    │
                    ▼
   ┌─────────────────────────────────────────────────┐
-  │  us-east-2 only                                  │
+  │  AWS — EHR core (VM1–VM5)                         │
   │                                                  │
   │  Internal ALB  →  VM2 API  (Node.js + PM2 :3001) │
   │                       │              │            │
@@ -47,6 +49,60 @@ Both read from **`deploy/config.env`** — one source of truth for all configura
   │                   VM3 DB         VM4 Mock         │
   │                   PG :5432       Node :3002       │
   └─────────────────────────────────────────────────┘
+
+  ── Azure West US 2 ───────────────────────────────────────────────────────
+
+  Application Gateway  :443 (HTTPS, public — SSL terminated at AppGW → HTTP :3031) → VM7a + VM7b
+  VM7a + VM7b (Azure West US 2 — Virtual Nursing Station + Smart Care Portal)
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  VNS  (vns/server/)  Node.js · Express · systemd · :3031  [×2]        │
+  │  (SSL terminated at Application Gateway — VMs serve plain HTTP)        │
+  │    Virtual nursing and remote patient oversight platform               │
+  │    GET  /login              Sign-in page (ThousandEyes Page Load)      │
+  │    GET  /                   Smart Care Portal (4-tab, requires login)  │
+  │      Tab: Command Center    facility stats, sessions, alert queue      │
+  │      Tab: Rooms & Sensors   SCFP room grid, sitters, fall events       │
+  │      Tab: Patient Monitor.  CPM NEWS2 table, ADL risk, vitals          │
+  │      Tab: Nursing Sessions  sessions, assessments, escalations         │
+  │    GET  /proxy/scfp/*       SCFP API proxy (browser single-origin)    │
+  │    GET  /proxy/cpm/*        CPM API proxy (browser single-origin)     │
+  │    POST /auth/login         Cookie session auth                        │
+  │    GET  /api/sessions       active virtual nursing sessions            │
+  │    GET  /api/alerts         aggregated alerts (SCFP + CPM)            │
+  │    POST /api/sessions/:id/assess  submit nursing assessment            │
+  │    GET  /api/command-center unified facility stats                     │
+  │    GET  /api/handover       shift handover summary                     │
+  │    Demo logins: nurse@ / doctor@ / admin@careconnect.demo             │
+  │    Upstream (cross-region): SCFP internal AppGW (Central US)          │
+  │                             CPM  internal AppGW (Central US)          │
+  │    Splunk APM: careconnect-vns                                         │
+  └────────────────────────────────────────────────────────────────────────┘
+          │ cross-region proxy calls (→ internal AppGWs in Central US)
+  ── Azure Central US ──────────────────────────────────────────────────────
+
+  Application Gateway (internal) :3030 → VM6a + VM6b (Azure Central US — Smart Care Facility Platform)
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  SCFP  (scfp/server/)  Node.js · Express · systemd · :3030  [×2]      │
+  │    AI-powered room monitoring, fall detection, and sensor alerting     │
+  │    24 rooms with virtual sensor arrays (PIR, bed exit, RTLS, noise)   │
+  │    GET /api/rooms           list rooms + sensor status                 │
+  │    GET /api/events/falls    fall detection events                      │
+  │    GET /api/alerts          active alert queue                         │
+  │    GET /api/staff/workflow  AI workflow recommendations                │
+  │    Splunk APM: careconnect-scfp                                        │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  Application Gateway (internal) :3032 → VM8a + VM8b (Azure Central US — Continuous Patient Monitoring)
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CPM  (cpm/server/)  Node.js · Express · systemd · :3032  [×2]        │
+  │    Predictive patient monitoring and early warning scoring (NEWS2)     │
+  │    20 patients · real NEWS2 algorithm · deterioration trend detection  │
+  │    GET /api/patients         all patients with EWS scores              │
+  │    GET /api/patients/:id/ews NEWS2 breakdown by component              │
+  │    GET /api/alerts           active deterioration alerts               │
+  │    GET /api/devices          IoT/wearable device registry              │
+  │    Splunk APM: careconnect-cpm                                         │
+  └────────────────────────────────────────────────────────────────────────┘
 
   VM5 (local — not in AWS)
   ┌──────────────────────────────────────────────────────────────────────┐
@@ -111,6 +167,9 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 | VM2 | API | Node.js gateway + 12 domain services (PM2) | none — proxied via VM1 |
 | VM3 | Database | PostgreSQL 17 | none — private only |
 | VM4 | Mock External Services | Node.js mock server | none — private only |
+| **VM6a + VM6b (Azure Central US)** | **Smart Care Facility Platform** | **SCFP Node.js (systemd :3030) — AI-powered room monitoring and fall detection · 2× behind internal Application Gateway** | **:3030 (internal AppGW)** |
+| **VM7a + VM7b (Azure West US 2) + Application Gateway** | **Virtual Nursing Station** | **VNS Node.js (systemd :3031) · 2× behind Application Gateway (SSL termination)** | **:443 HTTPS (via AppGW)** |
+| **VM8a + VM8b (Azure Central US)** | **Continuous Patient Monitoring** | **CPM Node.js (systemd :3032) — Predictive patient monitoring and early warning scoring · 2× behind internal Application Gateway** | **:3032 (internal AppGW)** |
 | **Local** | **PACS Radiology** | **PACS Server (PM2 :3021), PACS Viewer (PM2 :5174)** | **:3021, :5174** |
 
 ### Nginx routing on VM1
@@ -130,7 +189,7 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
 
 ## Prerequisites
 
-**Cloud EHR (aws-deploy.sh):**
+**Cloud EHR (healthcare-deploy.sh):**
 - [ ] EC2 instances provisioned — Ubuntu 22.04 LTS, t3.medium or larger:
   - **us-east-2**: 1+ VM1 (web), 1+ VM2 (API), 1 VM3 (DB), 1 VM4 (Mock)
   - **us-west-1**: 1+ VM1 (web) only
@@ -142,12 +201,13 @@ Clinical reads (patients, appointments, labs) flow through the BFF. Auth, messag
   - `careconnect.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
   - `mychart.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
   - `mobile.pseudo-co.com` A alias → `GLOBAL_ACCELERATOR_DNS`
+  - `vns.pseudo-co.com` A → `AZURE_APPGW_VNS_IP` (Azure Application Gateway public IP, West US 2)
 
-**Local PACS (local-deploy.sh):**
+**Local PACS (pacs-deploy.sh):**
 - [ ] VM5 running Ubuntu 22.04 LTS (or any Linux) — reachable via SSH from your deployment machine
 - [ ] `PACS_PUBLIC_IP` set in `config.env` to VM5's public IP — same role as `*_PUBLIC_IP` vars for cloud VMs
 - [ ] `PACS_SSH_USER` and `PACS_SSH_KEY` set in `config.env` — separate from the EC2 `SSH_USER`/`SSH_KEY`; falls back to those if not set
-- [ ] Node.js 20 and PM2 installed automatically on VM5 by `local-deploy.sh init all` (apt/yum)
+- [ ] Node.js 20 and PM2 installed automatically on VM5 by `pacs-deploy.sh init all` (apt/yum)
 
 ### Security group rules
 
@@ -208,10 +268,10 @@ cp deploy/config.env.example deploy/config.env
 vi deploy/config.env
 
 # 2. Provision all four VMs in the correct order (~10 min)
-bash deploy/aws-deploy.sh init all
+bash deploy/healthcare-deploy.sh init all
 
 # 3. Verify everything is healthy
-bash deploy/aws-deploy.sh status
+bash deploy/healthcare-deploy.sh status
 ```
 
 **Local PACS (VM5):**
@@ -220,13 +280,13 @@ bash deploy/aws-deploy.sh status
 # Uses the same config.env — make sure PACS_* vars are set first
 
 # 4. Install the SSH key on VM5 (one-time, prompts for VM5 password)
-bash deploy/local-deploy.sh copy-id
+bash deploy/pacs-deploy.sh copy-id
 
 # 5. Provision VM5: install Node.js, deploy PACS, download DICOM samples (~5–8 min)
-bash deploy/local-deploy.sh init all
+bash deploy/pacs-deploy.sh init all
 
 # 6. Verify
-bash deploy/local-deploy.sh status
+bash deploy/pacs-deploy.sh status
 ```
 
 The PACS viewer opens at `http://<PACS_PUBLIC_IP>:5174`. Log in with `dr.chen@careconnect.demo` / `Demo123!`.
@@ -270,7 +330,7 @@ MOCK_PRIVATE_IP=10.0.1.40
 API_ALB_DNS=careconnect-api-alb-internal-xxxx.us-east-2.elb.amazonaws.com
 ```
 
-`aws-deploy.sh` automatically combines `FRONTEND_PUBLIC_IPS_USE2` and `FRONTEND_PUBLIC_IPS_UW1` into a single deploy loop — all web VMs receive identical configuration.
+`healthcare-deploy.sh` automatically combines `FRONTEND_PUBLIC_IPS_USE2` and `FRONTEND_PUBLIC_IPS_UW1` into a single deploy loop — all web VMs receive identical configuration.
 
 Set the portal hostnames:
 
@@ -299,7 +359,7 @@ DB_HOST=10.0.1.30   # or: careconnect-db.internal.example.com
 ## Step 1 — Init DB (VM3)
 
 ```bash
-bash deploy/aws-deploy.sh init db
+bash deploy/healthcare-deploy.sh init db
 ```
 
 What this does:
@@ -313,7 +373,7 @@ What this does:
 ## Step 2 — Init Mock Services (VM4)
 
 ```bash
-bash deploy/aws-deploy.sh init mock
+bash deploy/healthcare-deploy.sh init mock
 ```
 
 **Run before API init** — the API's `.env` gets the mock URLs written during its setup.
@@ -323,7 +383,7 @@ bash deploy/aws-deploy.sh init mock
 ## Step 3 — Init API (VM2)
 
 ```bash
-bash deploy/aws-deploy.sh init api
+bash deploy/healthcare-deploy.sh init api
 ```
 
 What this does:
@@ -341,16 +401,16 @@ The seeded demo accounts:
 
 | Role | Email | Password | Portal |
 |------|-------|----------|--------|
-| Patient | `patient@demo.com` | `Demo123!` | mychart.pseudo-co.com |
-| Provider | `provider@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
-| Admin | `admin@demo.com` | `Demo123!` | careconnect.pseudo-co.com |
+| Patient | `patient@careconnect.demo` | `Demo123!` | mychart.pseudo-co.com |
+| Provider | `provider@careconnect.demo` | `Demo123!` | careconnect.pseudo-co.com |
+| Admin | `admin@careconnect.demo` | `Demo123!` | careconnect.pseudo-co.com |
 
 ---
 
 ## Step 4 — Init Frontend + BFF (VM1)
 
 ```bash
-bash deploy/aws-deploy.sh init frontend
+bash deploy/healthcare-deploy.sh init frontend
 ```
 
 What this does:
@@ -370,7 +430,7 @@ This step takes ~3 minutes (React build runs on the VM).
 ## Step 5 — Verify
 
 ```bash
-bash deploy/aws-deploy.sh status
+bash deploy/healthcare-deploy.sh status
 ```
 
 ### End-to-end smoke tests
@@ -387,7 +447,7 @@ curl -H "Host: careconnect.pseudo-co.com" http://<VM1_IP>/ # index.html served
 TOKEN=$(curl -s -X POST http://<VM1_IP>/api/auth/login \
   -H "Content-Type: application/json" \
   -H "Host: careconnect.pseudo-co.com" \
-  -d '{"email":"provider@demo.com","password":"Demo123!"}' \
+  -d '{"email":"provider@careconnect.demo","password":"Demo123!"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 # FHIR CapabilityStatement (no auth)
@@ -405,7 +465,7 @@ curl -s -X POST http://<VM1_IP>/api/eprescribe \
 
 ## Step 5b — PACS Radiology System (local)
 
-The PACS runs on VM5 (a local machine, not in AWS). It is managed entirely by `deploy/local-deploy.sh`, which reads the same `deploy/config.env` as `aws-deploy.sh`.
+The PACS runs on VM5 (a local machine, not in AWS). It is managed entirely by `deploy/pacs-deploy.sh`, which reads the same `deploy/config.env` as `healthcare-deploy.sh`.
 
 ### Configure PACS vars in config.env
 
@@ -423,7 +483,7 @@ PACS_IMAGE_LATENCY_JITTER_MS=0
 ### Install and start
 
 ```bash
-bash deploy/local-deploy.sh init all
+bash deploy/pacs-deploy.sh init all
 ```
 
 This installs PM2 if missing, runs `npm install` in `pacs/server/` and `pacs/viewer/`, writes `.env` files from `config.env`, and starts both services under PM2.
@@ -433,7 +493,7 @@ This installs PM2 if missing, runs `npm install` in `pacs/server/` and `pacs/vie
 Sample images are downloaded automatically during `init all`. The download fetches pydicom test files (CT, MRI, X-ray) into `pacs/server/studies/` and the server re-indexes them on startup. To re-download manually:
 
 ```bash
-bash deploy/local-deploy.sh init samples
+bash deploy/pacs-deploy.sh init samples
 ```
 
 ### Demo users
@@ -462,7 +522,7 @@ The PACS server includes a cron-driven latency anomaly designed for SE demo team
 **Set up the cron (run once after `init all`):**
 
 ```bash
-bash deploy/local-deploy.sh init cron
+bash deploy/pacs-deploy.sh init cron
 ```
 
 **Configure the schedule and intensity in `deploy/config.env`:**
@@ -479,8 +539,8 @@ Then re-run `init cron` to push the new schedule. The cron expressions run in th
 **Trigger on-demand (no need to wait for the schedule):**
 
 ```bash
-bash deploy/local-deploy.sh anomaly enable   # start anomaly immediately
-bash deploy/local-deploy.sh anomaly disable  # restore normal immediately
+bash deploy/pacs-deploy.sh anomaly enable   # start anomaly immediately
+bash deploy/pacs-deploy.sh anomaly disable  # restore normal immediately
 ```
 
 **How it works:**
@@ -530,7 +590,325 @@ curl -o /dev/null -w "size=%{size_download}B  time=%{time_total}s  speed=%{speed
 
 ---
 
-## Step 5c — Cross-Region Traffic Simulation (optional)
+## Step 5c — Smart Care Facility Platform (Azure · West US 2 + Central US · optional)
+
+```
+  Smart Care — Azure Architecture
+  ───────────────────────────────────────────────────────────────────────────
+
+  Browser / ThousandEyes
+         │ HTTPS :443
+         ▼
+  ┌─────────────────────────────────────────────┐
+  │  Application Gateway (public)  West US 2    │
+  │  vns.pseudo-co.com · SSL termination :443   │
+  └─────────────────────┬───────────────────────┘
+                        │ HTTP :3031
+                 ┌──────┴──────┐
+                 ▼             ▼
+            ┌─────────┐   ┌─────────┐
+            │  VM7a   │   │  VM7b   │  careconnect-vns
+            │  VNS    │   │  VNS    │  Virtual Nursing Station
+            │  :3031  │   │  :3031  │  Smart Care Portal
+            └────┬────┘   └────┬────┘
+                 └──────┬──────┘
+         ┌── cross-region ──┐
+         │                  │              ┌─────────────────────┐
+         ▼                  ▼   cross- ───▶│  AWS us-east-2      │
+  ┌─────────────┐   ┌─────────────┐ cloud  │  VM2 API · :3001    │
+  │ AppGW (int) │   │ AppGW (int) │        │  careconnect-api-gwy│
+  │ SCFP · :3030│   │ CPM  · :3032│        └─────────────────────┘
+  │ Central US  │   │ Central US  │   VNS → EHR on assessment write
+  └──────┬──────┘   └──────┬──────┘
+      ┌──┴───┐          ┌──┴───┐
+      ▼      ▼          ▼      ▼
+  ┌──────┐┌──────┐  ┌──────┐┌──────┐
+  │ VM6a ││ VM6b │  │ VM8a ││ VM8b │
+  │ SCFP ││ SCFP │  │ CPM  ││ CPM  │
+  │:3030 ││:3030 │  │:3032 ││:3032 │
+  └──────┘└──────┘  └──────┘└──────┘
+  careconnect-scfp   careconnect-cpm
+  Room monitoring      Patient monitoring
+```
+
+Three additional VMs add AI-powered room monitoring, predictive patient monitoring, and virtual nursing capabilities. All three read from the same `deploy/config.env` and are deployed via `healthcare-deploy.sh`.
+
+VM7 (VNS) deploys to **West US 2** behind an Azure Application Gateway (HTTPS :443, SSL termination). VM6 (SCFP) and VM8 (CPM) deploy to **Central US**. VNS proxies to SCFP and CPM via their public IPs — cross-region traffic appears as distinct hops in ThousandEyes Cloud Insights path visualization alongside the existing cross-cloud edge from Azure (VM7) to AWS (VM2).
+
+The deploy script uses only SSH + rsync — no cloud-native tooling — so the same commands work on Azure VMs, AWS EC2, or any SSH-accessible Ubuntu host.
+
+### Provision Azure resources — Azure Portal
+
+Create all VMs and the Load Balancer manually in the [Azure Portal](https://portal.azure.com). Use the settings below for each resource.
+
+#### West US 2 — resource group `rg-careconnect-west`
+
+**VM7a + VM7b — Virtual Nursing Station (2 VMs)**
+
+| Setting | VM7a | VM7b |
+|---|---|---|
+| Region | West US 2 | West US 2 |
+| Name | `vm7a-vns` | `vm7b-vns` |
+| Image | Ubuntu Server 22.04 LTS | Ubuntu Server 22.04 LTS |
+| Size | Standard_B2s | Standard_B2s |
+| Authentication | SSH public key | SSH public key |
+| Public IP SKU | Standard | Standard |
+
+**Application Gateway — VNS portal (SSL termination)**
+
+| Setting | Value |
+|---|---|
+| SKU | Standard_v2 |
+| Tier | Standard |
+| Type | Public |
+| Frontend IP | Public · note as `AZURE_APPGW_VNS_IP` |
+| Listener (HTTPS) | HTTPS · port `443` · SSL cert for `vns.pseudo-co.com` |
+| Listener (HTTP) | HTTP · port `80` · redirect to HTTPS |
+| Backend pool | vm7a-vns (private IP) + vm7b-vns (private IP) |
+| Backend HTTP setting | HTTP · port `3031` · cookie-based affinity off |
+| Health probe | HTTP · port `3031` · path `/health` · match: HTTP 200 |
+| Routing rule | HTTPS listener → backend pool via HTTP setting |
+
+After creating: note both VM public IPs (`VNS_PUBLIC_IP_1/2`) and the Application Gateway frontend IP (`AZURE_APPGW_VNS_IP`) for `config.env`. Create a DNS A record: `vns.pseudo-co.com → AZURE_APPGW_VNS_IP`.
+
+#### Central US — resource group `rg-careconnect-central`
+
+**VM6a + VM6b — Smart Care Facility Platform (2 VMs)**
+
+| Setting | VM6a | VM6b |
+|---|---|---|
+| Region | Central US | Central US |
+| Name | `vm6a-scfp` | `vm6b-scfp` |
+| Image | Ubuntu Server 22.04 LTS | Ubuntu Server 22.04 LTS |
+| Size | Standard_B2s | Standard_B2s |
+| Authentication | SSH public key | SSH public key |
+| Public IP SKU | Standard | Standard |
+
+**Application Gateway — SCFP (internal)**
+
+| Setting | Value |
+|---|---|
+| SKU | Standard_v2 |
+| Tier | Standard |
+| Type | Internal (private frontend IP) |
+| Frontend IP | Private · note as `AZURE_APPGW_SCFP_IP` |
+| Listener | HTTP · port `3030` |
+| Backend pool | vm6a-scfp (private IP) + vm6b-scfp (private IP) |
+| Backend HTTP setting | HTTP · port `3030` · cookie-based affinity off |
+| Health probe | HTTP · port `3030` · path `/health` · match: HTTP 200 |
+| Routing rule | HTTP listener → backend pool via HTTP setting |
+
+**VM8a + VM8b — Continuous Patient Monitoring (2 VMs)**
+
+| Setting | VM8a | VM8b |
+|---|---|---|
+| Region | Central US | Central US |
+| Name | `vm8a-cpm` | `vm8b-cpm` |
+| Image | Ubuntu Server 22.04 LTS | Ubuntu Server 22.04 LTS |
+| Size | Standard_B2s | Standard_B2s |
+| Authentication | SSH public key | SSH public key |
+| Public IP SKU | Standard | Standard |
+
+**Application Gateway — CPM (internal)**
+
+| Setting | Value |
+|---|---|
+| SKU | Standard_v2 |
+| Tier | Standard |
+| Type | Internal (private frontend IP) |
+| Frontend IP | Private · note as `AZURE_APPGW_CPM_IP` |
+| Listener | HTTP · port `3032` |
+| Backend pool | vm8a-cpm (private IP) + vm8b-cpm (private IP) |
+| Backend HTTP setting | HTTP · port `3032` · cookie-based affinity off |
+| Health probe | HTTP · port `3032` · path `/health` · match: HTTP 200 |
+| Routing rule | HTTP listener → backend pool via HTTP setting |
+
+After creating all: note VM public IPs (`SCFP_PUBLIC_IP_1/2`, `CPM_PUBLIC_IP_1/2`) and internal AppGW frontend IPs (`AZURE_APPGW_SCFP_IP`, `AZURE_APPGW_CPM_IP`) for `config.env`.
+
+#### Cross-region connectivity
+
+VNS (West US 2) reaches SCFP and CPM (Central US) via their **public IPs** — no VNet peering required. This keeps cross-region traffic observable as distinct hops in ThousandEyes path traces. Set `SCFP_VNS_HOST` and `CPM_VNS_HOST` to the Central US public IPs in `config.env`.
+
+> **Optional — private routing:** Set up Azure VNet peering between the two VNets (`az network vnet peering create`) and use private IPs in `SCFP_VNS_HOST` / `CPM_VNS_HOST` instead. Traffic stays on the Azure backbone but the cross-region hop is less visible to ThousandEyes.
+
+### Configure vars in config.env
+
+```bash
+# ── Azure regions ─────────────────────────────────────────────
+AZURE_RG_WEST=rg-careconnect-west
+AZURE_RG_CENTRAL=rg-careconnect-central
+AZURE_APPGW_VNS_IP=1.2.3.50   # Application Gateway public IP (West US 2, HTTPS :443)
+AZURE_APPGW_SCFP_IP=10.1.0.50    # Internal AppGW frontend IP — SCFP (Central US, :3030)
+AZURE_APPGW_CPM_IP=10.1.0.51     # Internal AppGW frontend IP — CPM  (Central US, :3032)
+
+# ── Smart Care Facility Platform (VM6a + VM6b — Azure Central US) ──
+SCFP_PUBLIC_IP_1=1.2.3.60     # vm6a public IP (SSH/rsync)
+SCFP_PUBLIC_IP_2=1.2.3.61     # vm6b public IP (SSH/rsync)
+SCFP_PORT=3030
+SCFP_ROOM_COUNT=24
+SCFP_EVENT_INTERVAL_MS=8000
+
+# ── Virtual Nursing Station (VM7a + VM7b — Azure West US 2) ───
+VNS_PUBLIC_IP_1=1.2.3.70      # vm7a public IP (SSH/rsync; HTTPS portal via AppGW)
+VNS_PUBLIC_IP_2=1.2.3.71      # vm7b public IP (SSH/rsync; HTTPS portal via AppGW)
+VNS_PORT=3031
+VNS_HOST=vns.pseudo-co.com
+SCFP_VNS_HOST=10.1.0.50       # = AZURE_APPGW_SCFP_IP (internal AppGW, cross-region)
+CPM_VNS_HOST=10.1.0.51        # = AZURE_APPGW_CPM_IP  (internal AppGW, cross-region)
+
+# ── Continuous Patient Monitoring (VM8a + VM8b — Azure Central US) ─
+CPM_PUBLIC_IP_1=1.2.3.80      # vm8a public IP (SSH/rsync)
+CPM_PUBLIC_IP_2=1.2.3.81      # vm8b public IP (SSH/rsync)
+CPM_PORT=3032
+CPM_DEVICE_COUNT=20
+CPM_VITAL_INTERVAL_MS=15000
+```
+
+### Deploy order
+
+Deploy SCFP and CPM first — VNS needs their private IPs to aggregate alerts.
+
+```bash
+# VM6 — Smart Care Facility Platform (AI-powered room monitoring and fall detection)
+bash deploy/healthcare-deploy.sh init scfp
+
+# VM8 — Continuous Patient Monitoring (predictive patient monitoring and early warning scoring)
+bash deploy/healthcare-deploy.sh init cpm
+
+# VM7 — Virtual Nursing Station (virtual nursing and remote patient oversight)
+bash deploy/healthcare-deploy.sh init vns
+```
+
+### Verify
+
+```bash
+# SCFP health + room stats
+curl http://<SCFP_PUBLIC_IP>:3030/health
+
+# Active fall detection events
+curl http://<SCFP_PUBLIC_IP>:3030/api/events/falls
+
+# AI workflow recommendations
+curl http://<SCFP_PUBLIC_IP>:3030/api/staff/workflow
+
+# Smart Care Portal login page (ThousandEyes Page Load target)
+curl https://vns.pseudo-co.com/login
+
+# Aggregated alerts from SCFP + CPM (unauthenticated — TE HTTP tests)
+curl https://vns.pseudo-co.com/api/alerts
+
+# CPM patients with NEWS2 scores
+curl http://<CPM_PUBLIC_IP>:3032/api/patients
+
+# HIGH risk patients only
+curl 'http://<CPM_PUBLIC_IP>:3032/api/patients?risk=high'
+
+# NEWS2 EWS breakdown for a patient
+curl http://<CPM_PUBLIC_IP>:3032/api/patients/PT-10000/ews
+```
+
+### Update code after changes
+
+```bash
+bash deploy/healthcare-deploy.sh update scfp
+bash deploy/healthcare-deploy.sh update vns
+bash deploy/healthcare-deploy.sh update cpm
+```
+
+### OTel Collectors for VM6–VM8
+
+Run after init — adds host metrics and log forwarding to each new VM:
+
+```bash
+bash deploy/healthcare-deploy.sh init otel
+```
+
+`init otel` automatically includes VM6, VM7, and VM8 if their `*_PUBLIC_IP` vars are set.
+
+| VM | Collector role | Splunk APM service | Log source |
+|----|---------------|-------------------|-----------|
+| VM6 | `scfp` | `careconnect-scfp` | `journald/careconnect-scfp` |
+| VM7 | `vns` | `careconnect-vns` | `journald/careconnect-vns` |
+| VM8 | `cpm` | `careconnect-cpm` | `journald/careconnect-cpm` |
+
+### Splunk service map topology
+
+VNS makes outbound HTTP calls to both SCFP and CPM when `/api/alerts` or `/api/handover` is requested:
+
+```
+careconnect-vns → careconnect-scfp   (GET /api/alerts)
+careconnect-vns → careconnect-cpm    (GET /api/alerts)
+```
+
+These cross-VM calls appear as edges in the Splunk APM service map, linking the three new services into the overall `careconnect-*` service topology. ThousandEyes can measure the network path between VNS and its upstream services (SCFP, CPM) independently from the EHR path.
+
+When `ehr_document: true` is sent in a nursing assessment POST, a fourth edge fires:
+
+```
+careconnect-vns (Azure VM7)  →  careconnect-api-gwy (AWS VM2)  →  careconnect-patients
+```
+
+This cross-cloud trace is the key multi-cloud story: Splunk APM shows the Azure→AWS hop as a service dependency, while ThousandEyes can run a targeted HTTP test from an Azure-region Enterprise Agent to `http://<VM2_PUBLIC_IP>:3001/health` to measure that path independently.
+
+### Network access rules (Azure NSG / AWS Security Group)
+
+| VM | Inbound from | Ports |
+|----|-------------|-------|
+| VM6 (SCFP) | Deployment machine, VM7 private IP | 22 (SSH), 3030 |
+| VM7 (VNS) | Deployment machine | 22 (SSH), 3031 |
+| VM8 (CPM) | Deployment machine, VM7 private IP | 22 (SSH), 3032 |
+
+VM7 (VNS) must reach VM6:3030 (SCFP) and VM8:3032 (CPM) to aggregate alerts — add inbound rules on VM6 and VM8 allowing the VM7 private IP.
+
+**Azure:** Open ports via NSG with `az network nsg rule create` or the Azure portal → Networking tab on each VM.
+
+**AWS:** Edit Security Group inbound rules in the EC2 Console.
+
+**Cross-cloud note:** When VM6–VM8 are on Azure and VM2 (API) is on AWS, VNS → EHR calls use VM2's **public IP** (not private). Set `VNS_API_HOST` in `config.env` to VM2's public IP or its hostname. VM6/VM7/VM8 on the same Azure VNet can use each other's private IPs.
+
+### ThousandEyes tests for Smart Care Facility
+
+| Test type | URL | Alert threshold |
+|-----------|-----|----------------|
+| HTTP Server — SCFP health | `http://<SCFP_PUBLIC_IP>:3030/health` | HTTP ≠ 200 |
+| HTTP Server — SCFP ping | `http://<SCFP_PUBLIC_IP>:3030/ping` | HTTP ≠ 200 or latency > 200 ms |
+| Page Load — Smart Care Portal login | `https://vns.pseudo-co.com/login` | Page load > 3 s |
+| HTTP Server — VNS health | `https://vns.pseudo-co.com/health` | HTTP ≠ 200 |
+| HTTP Server — VNS alerts | `https://vns.pseudo-co.com/api/alerts` | HTTP ≠ 200 |
+| HTTP Server — CPM health | `http://<CPM_PUBLIC_IP>:3032/health` | HTTP ≠ 200 |
+| HTTP Server — CPM alerts | `http://<CPM_PUBLIC_IP>:3032/api/alerts` | HTTP ≠ 200 |
+
+**Smart Care Portal access:** Open `https://vns.pseudo-co.com/` in a browser. Demo credentials:
+- `nurse@careconnect.demo` / `Demo123!` — Nurse view
+- `doctor@careconnect.demo` / `Demo123!` — Physician view
+- `admin@careconnect.demo` / `Demo123!` — Administrator view
+
+### Useful SPL queries (Smart Care Facility)
+
+```spl
+# Fall detection events across all rooms
+index=careconnect source=careconnect-scfp type=fall_detected
+| stats count by room_number, unit | sort -count
+
+# NEWS2 HIGH risk escalations
+index=careconnect source=careconnect-cpm type=news2_high
+| table _time, patient_name, room_number, unit, news2_score
+| sort -_time
+
+# VNS nursing assessments that required escalation
+index=careconnect source=careconnect-vns message=assessment_escalation
+| table _time, patient_id, room_number
+| sort -_time
+
+# Alert acknowledgement latency (time from alert creation to ack)
+index=careconnect source=careconnect-scfp OR source=careconnect-cpm message=*acknowledged*
+| eval latency_s=strptime(acknowledged_at, "%Y-%m-%dT%H:%M:%S") - strptime(_time, "%Y-%m-%dT%H:%M:%S")
+| stats avg(latency_s) as avg_ack_s by source
+```
+
+---
+
+## Step 5e — Cross-Region Traffic Simulation (optional)
 
 Installs a scheduled replication traffic generator that drives cross-region Transit Gateway telemetry. The server runs on api02 (us-east-2) and the client runs on uw1-web02 (us-west-1).
 
@@ -539,7 +917,7 @@ Installs a scheduled replication traffic generator that drives cross-region Tran
 - `TRAFFIC_SIM_*` block configured in `config.env` (defaults work out of the box if IP arrays have ≥ 2 entries)
 
 ```bash
-bash deploy/aws-deploy.sh traffic-sim
+bash deploy/healthcare-deploy.sh traffic-sim
 ```
 
 What this does:
@@ -589,7 +967,7 @@ The service returns to `inactive (dead)` after each run — this is correct; the
 | `TRAFFIC_SIM_START_HOUR_UTC` | `13` | cron fire hour UTC (13:00 = 08:00 CDT) |
 | `TRAFFIC_SIM_RANDOM_WINDOW_S` | `31200` | Max pre-burst delay (8h 40m) |
 
-To change the schedule or disable, edit `config.env` and re-run `bash deploy/aws-deploy.sh traffic-sim`.
+To change the schedule or disable, edit `config.env` and re-run `bash deploy/healthcare-deploy.sh traffic-sim`.
 
 **Teardown:**
 ```bash
@@ -617,7 +995,7 @@ Requires `SPLUNK_ACCESS_TOKEN`, `SPLUNK_REALM`, `SPLUNK_PLATFORM_HEC_URL`, and `
 **Cloud EHR (VM1–VM3):**
 
 ```bash
-bash deploy/aws-deploy.sh init otel
+bash deploy/healthcare-deploy.sh init otel
 ```
 
 | VM | Collector role | Collects |
@@ -629,7 +1007,7 @@ bash deploy/aws-deploy.sh init otel
 **PACS (VM5 / local):**
 
 ```bash
-bash deploy/local-deploy.sh init otel
+bash deploy/pacs-deploy.sh init otel
 ```
 
 This SSHes to VM5, runs `05-setup-otel-collector.sh pacs`, writes the PACS-specific OTel config (`deploy/configs/otel-collector-pacs.yaml`), and restarts the PACS server with `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` so APM traces route through the collector rather than directly to Splunk.
@@ -674,19 +1052,19 @@ psql postgresql://<DB_USER>:<DB_PASSWORD>@localhost:5432/<DB_NAME> \
 
 ```bash
 # Push a backend change (zero-downtime PM2 reload)
-bash deploy/aws-deploy.sh update api
+bash deploy/healthcare-deploy.sh update api
 
 # Push a UI change to both portals (React rebuild + Nginx reload, ~2 min)
-bash deploy/aws-deploy.sh update frontend
+bash deploy/healthcare-deploy.sh update frontend
 
 # Push a BFF change only (no React rebuild, ~20 sec)
-bash deploy/aws-deploy.sh update bff
+bash deploy/healthcare-deploy.sh update bff
 
 # Push a mock-services.js change
-bash deploy/aws-deploy.sh update mock
+bash deploy/healthcare-deploy.sh update mock
 
 # Push everything
-bash deploy/aws-deploy.sh update all
+bash deploy/healthcare-deploy.sh update all
 ```
 
 ### Check service health on each VM
@@ -721,27 +1099,27 @@ sudo -u careconnect node src/db/seed.js
 
 ```bash
 # Check PACS status and ThousandEyes test URLs
-bash deploy/local-deploy.sh status
+bash deploy/pacs-deploy.sh status
 
 # Stop / start / restart individual services
-bash deploy/local-deploy.sh stop all
-bash deploy/local-deploy.sh start all
-bash deploy/local-deploy.sh restart server
-bash deploy/local-deploy.sh restart viewer
+bash deploy/pacs-deploy.sh stop all
+bash deploy/pacs-deploy.sh start all
+bash deploy/pacs-deploy.sh restart server
+bash deploy/pacs-deploy.sh restart viewer
 
 # Tail logs
-bash deploy/local-deploy.sh logs server
-bash deploy/local-deploy.sh logs viewer
+bash deploy/pacs-deploy.sh logs server
+bash deploy/pacs-deploy.sh logs viewer
 
 # Update PACS code (npm install + PM2 reload, no restart needed)
-bash deploy/local-deploy.sh update all
+bash deploy/pacs-deploy.sh update all
 ```
 
 ### Cross-region traffic simulation
 
 ```bash
 # Deploy (or redeploy after config change)
-bash deploy/aws-deploy.sh traffic-sim
+bash deploy/healthcare-deploy.sh traffic-sim
 
 # Trigger immediately on uw1-web02 (no random delay — useful for demos)
 ssh -i ~/.ssh/aws-key ubuntu@13.57.253.142 \
@@ -761,7 +1139,7 @@ ssh -i ~/.ssh/aws-key ubuntu@13.57.253.142 \
 
 # Disable schedule without uninstalling (edit config.env, then redeploy)
 # In config.env: TRAFFIC_SIM_ENABLED=false
-bash deploy/aws-deploy.sh traffic-sim
+bash deploy/healthcare-deploy.sh traffic-sim
 ```
 
 ---
@@ -784,7 +1162,7 @@ MYCHART_FAILURE_DURATION=15     # minutes — auto-resolves after this
 **Deploy the configuration change:**
 
 ```bash
-bash deploy/aws-deploy.sh update api
+bash deploy/healthcare-deploy.sh update api
 ```
 
 The injector reads env vars at process startup, so a code update is not required if only the schedule or type is changing — `update api` rewrites the `.env` on VM2 and does a PM2 reload.
@@ -795,7 +1173,7 @@ The injector reads env vars at process startup, so a code update is not required
 # In config.env:
 MYCHART_FAILURE_ENABLED=
 
-bash deploy/aws-deploy.sh update api
+bash deploy/healthcare-deploy.sh update api
 ```
 
 **Failure modes:**
@@ -842,13 +1220,13 @@ Raise image latency to simulate a slow WAN path between the radiologist workstat
 
 ```bash
 # Inject 1500 ms latency + 300 ms jitter on DICOM image delivery
-bash deploy/local-deploy.sh latency set 1500 300
+bash deploy/pacs-deploy.sh latency set 1500 300
 
 # Check current latency setting
-bash deploy/local-deploy.sh latency status
+bash deploy/pacs-deploy.sh latency status
 
 # Remove latency (restore normal performance)
-bash deploy/local-deploy.sh latency clear
+bash deploy/pacs-deploy.sh latency clear
 ```
 
 Latency is applied **per image slice** on the `/wado` endpoint — a CT series of 30 slices becomes very apparent at 1500 ms/slice. The `/health` and `/ping` endpoints are unaffected, so ThousandEyes HTTP Server tests stay green while Page Load and Transaction tests degrade, accurately reflecting a WAN-only problem.
@@ -878,7 +1256,7 @@ ssh ubuntu@<MOCK_PUBLIC_IP> "curl -s -X PATCH http://localhost:3002/config \
 `update frontend` loops over all VMs in `FRONTEND_PUBLIC_IPS_USE2` + `FRONTEND_PUBLIC_IPS_UW1` — no extra steps needed:
 
 ```bash
-bash deploy/aws-deploy.sh update frontend
+bash deploy/healthcare-deploy.sh update frontend
 ```
 
 The React bundle is built once on the first VM then re-used via rsync for subsequent VMs, so build time doesn't multiply with region count.
@@ -889,10 +1267,10 @@ Set only that region's IPs before running update:
 
 ```bash
 # Deploy to us-west-1 only
-FRONTEND_PUBLIC_IPS_USE2="" bash deploy/aws-deploy.sh update frontend
+FRONTEND_PUBLIC_IPS_USE2="" bash deploy/healthcare-deploy.sh update frontend
 
 # Deploy to us-east-2 only
-FRONTEND_PUBLIC_IPS_UW1="" bash deploy/aws-deploy.sh update frontend
+FRONTEND_PUBLIC_IPS_UW1="" bash deploy/healthcare-deploy.sh update frontend
 ```
 
 ### Disable a region (maintenance / incident)
@@ -905,7 +1283,7 @@ Web VMs in us-west-1 proxy `/api/*` to the API ALB in us-east-2. At AWS backbone
 
 ### Health check scope
 
-`bash deploy/aws-deploy.sh status` checks all web VMs individually via their public IPs. To confirm Global Accelerator is routing correctly, test via the public hostname:
+`bash deploy/healthcare-deploy.sh status` checks all web VMs individually via their public IPs. To confirm Global Accelerator is routing correctly, test via the public hostname:
 
 ```bash
 curl -v https://careconnect.pseudo-co.com/ping    # should return "pong" from nearest region
@@ -943,7 +1321,7 @@ To alert on synthetic test failures, configure an **Endpoint Agent Scheduled Tes
 
 Set `PACS_PUBLIC_IP` in `config.env` to VM5's IP address. Use `127.0.0.1` only when the ThousandEyes Enterprise Agent runs on the same machine as the PACS server.
 
-Run `bash deploy/local-deploy.sh status` to see the exact URLs ThousandEyes should target.
+Run `bash deploy/pacs-deploy.sh status` to see the exact URLs ThousandEyes should target.
 
 | Test type | URL | Alert threshold |
 |-----------|-----|----------------|
@@ -993,7 +1371,7 @@ import { driver, By, until } from 'thousand-eyes-recorder';
 
 await driver.get('https://mychart.pseudo-co.com/');
 await driver.wait(until.titleContains('MyChart'), 10000);
-await driver.findElement(By.css('input[type="email"]')).sendKeys('patient@demo.com');
+await driver.findElement(By.css('input[type="email"]')).sendKeys('patient@careconnect.demo');
 await driver.findElement(By.css('input[type="password"]')).sendKeys('Demo123!');
 await driver.findElement(By.css('button[type="submit"]')).click();
 await driver.wait(until.urlContains('/patient/dashboard'), 10000);
@@ -1015,7 +1393,7 @@ await driver.get('https://mychart.pseudo-co.com/');
 await driver.wait(until.titleContains('MyChart'), 10000);
 
 // Step 2 — Log in (auth route is never affected by failure injection)
-await driver.findElement(By.css('input[type="email"]')).sendKeys('patient@demo.com');
+await driver.findElement(By.css('input[type="email"]')).sendKeys('patient@careconnect.demo');
 await driver.findElement(By.css('input[type="password"]')).sendKeys('Demo123!');
 await driver.findElement(By.css('button[type="submit"]')).click();
 await driver.wait(until.urlContains('/patient/dashboard'), 10000);
@@ -1042,7 +1420,7 @@ import { driver, By, until } from 'thousand-eyes-recorder';
 
 await driver.get('https://careconnect.pseudo-co.com/');
 await driver.wait(until.titleContains('CareConnect'), 10000);
-await driver.findElement(By.css('input[type="email"]')).sendKeys('provider@demo.com');
+await driver.findElement(By.css('input[type="email"]')).sendKeys('provider@careconnect.demo');
 await driver.findElement(By.css('input[type="password"]')).sendKeys('Demo123!');
 await driver.findElement(By.css('button[type="submit"]')).click();
 await driver.wait(until.urlContains('/provider/dashboard'), 10000);
@@ -1060,12 +1438,18 @@ await driver.wait(until.elementLocated(By.css('[role="dialog"]')), 3000);
 |--------|--------|-------------|---------------|
 | APM traces | Node.js + OTel SDK on VM2 | `careconnect-api-gwy` + domain services | Splunk APM → Service Map |
 | APM traces | PACS Node.js + OTel SDK on VM5 | `careconnect-pacs` | Splunk APM → Service Map |
+| APM traces | SCFP Node.js + OTel SDK on VM6 | `careconnect-scfp` | Splunk APM → Service Map |
+| APM traces | VNS Node.js + OTel SDK on VM7 | `careconnect-vns` | Splunk APM → Service Map |
+| APM traces | CPM Node.js + OTel SDK on VM8 | `careconnect-cpm` | Splunk APM → Service Map |
 | RUM — clinical | Splunk RUM JS in React clinical bundle | `careconnect-clinical` | Splunk RUM → Session Explorer |
 | RUM — patient | Splunk RUM JS in React patient bundle | `mychart-patient` | Splunk RUM → Session Explorer |
 | RUM — PACS viewer | Splunk RUM JS in Vite PACS viewer bundle | `careconnect-pacs-viewer` | Splunk RUM → Session Explorer |
-| Infrastructure | OTel Collector host metrics (VM1–VM3 + VM5) | — | Splunk Infrastructure Monitoring |
+| Infrastructure | OTel Collector host metrics (VM1–VM3, VM5–VM8) | — | Splunk Infrastructure Monitoring |
 | Logs — EHR | Winston JSON → OTel Collector → Splunk Platform HEC | — | Splunk Log Observer |
 | Logs — PACS | Winston JSON → `~/logs/careconnect/pacs-*.log` → OTel Collector → HEC | — | Splunk Log Observer |
+| Logs — SCFP | Winston JSON → journald → OTel Collector → Splunk Platform HEC | `careconnect-scfp` | Splunk Log Observer |
+| Logs — VNS | Winston JSON → journald → OTel Collector → Splunk Platform HEC | `careconnect-vns` | Splunk Log Observer |
+| Logs — CPM | Winston JSON → journald → OTel Collector → Splunk Platform HEC | `careconnect-cpm` | Splunk Log Observer |
 
 Filter RUM sessions by portal:
 - `app.name = "CareConnect Clinical"` — clinical portal traffic
@@ -1260,11 +1644,11 @@ If this shows `WARNING: Extension service worker not detected`, check:
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| MyChart patient routes return 503 outside the failure window | `MYCHART_FAILURE_ENABLED=true` left set after a demo | Set `MYCHART_FAILURE_ENABLED=` (empty) in `config.env` and run `bash deploy/aws-deploy.sh update api` |
+| MyChart patient routes return 503 outside the failure window | `MYCHART_FAILURE_ENABLED=true` left set after a demo | Set `MYCHART_FAILURE_ENABLED=` (empty) in `config.env` and run `bash deploy/healthcare-deploy.sh update api` |
 | Failure window fires at the wrong clock time | VM2 system timezone differs from expected | SSH to VM2 and run `timedatectl` — set `MYCHART_FAILURE_HOUR` relative to the VM's local timezone, or `sudo timedatectl set-timezone America/New_York` to align with your demo timezone |
 | `/health` endpoint returns 503 during failure window | Custom health-check path being intercepted | Health endpoints are always exempt by design; if a non-`/health` path is in the health check URL, update it to `/health` |
 | Failure injection active but no `mychart.failure.*` spans in Splunk APM | Splunk APM not configured (no `SPLUNK_ACCESS_TOKEN`) | Set `SPLUNK_ACCESS_TOKEN` and `SPLUNK_REALM` in `config.env` and re-run `init api`; spans still appear in logs even without APM |
-| `bash deploy/aws-deploy.sh init` fails at SSH step | Wrong public IP or key path | Check `*_PUBLIC_IP` and `SSH_KEY` in config.env; verify `ssh ubuntu@<PUBLIC_IP>` works manually |
+| `bash deploy/healthcare-deploy.sh init` fails at SSH step | Wrong public IP or key path | Check `*_PUBLIC_IP` and `SSH_KEY` in config.env; verify `ssh ubuntu@<PUBLIC_IP>` works manually |
 | `Cannot connect to database` on init api | VM3 not ready or security group blocking | Confirm VM3 init completed; check SG allows VM2 private IP on port 5432 |
 | `MOCK_HOST not set` warning | `MOCK_PRIVATE_IP` blank in config.env | Set `MOCK_PRIVATE_IP` and re-run `init api` |
 | React SPA loads but `/api/*` returns 502 | Nginx proxy not reaching VM2 | `ssh ubuntu@<VM1> "sudo nginx -t"` — check API_PRIVATE_IPS in nginx config |
@@ -1274,21 +1658,21 @@ If this shows `WARNING: Extension service worker not detected`, check:
 | `patient.html` 404 | React build didn't produce multi-page output | Confirm `vite.config.ts` has `rollupOptions.input` with both entries; re-run `update frontend` |
 | `gzip` directive is duplicate in nginx config | Main `nginx.conf` already has `gzip on` in its `http {}` block | Gzip settings must go in `/etc/nginx/conf.d/gzip.conf`, not in the `sites-available` file; `04-update.sh` writes this automatically |
 | PM2 processes keep restarting | App crash or bad `.env` | `ssh ubuntu@<API_PUBLIC_IP> "journalctl -u careconnect-api -n 100"` |
-| `careconnect-bff` not starting | Missing `API_URL` in BFF `.env` | Re-run `bash deploy/aws-deploy.sh update bff` |
+| `careconnect-bff` not starting | Missing `API_URL` in BFF `.env` | Re-run `bash deploy/healthcare-deploy.sh update bff` |
 | ePrescription `integration.latencyMs` is 0 | VM4 not reachable from VM2 | Check `SURESCRIPTS_URL` in VM2 `.env`; verify SG allows VM2 → VM4:3002 |
 | `DB_HOST` connection refused | `DB_HOST` still set to example value | Set `DB_HOST` to VM3's private IP (or RDS endpoint) in config.env, re-run `init api` |
 | API 502 from uw1 web VMs only | VM2 SG blocking cross-region traffic | Add the uw1 VPC CIDR to VM2's security group inbound rule on port 3001 |
 | Global Accelerator not routing to uw1 | ALB health check failing | `curl http://<UW1_VM1_IP>/ping` — if that fails, check Nginx on the uw1 VM |
 | Both portals resolve to use2 only | GA endpoint group weight misconfigured | Verify uw1 endpoint group weight = 100 in Global Accelerator console |
-| `local-deploy.sh` SSH connection refused | `PACS_PUBLIC_IP` wrong or VM5 not running | Verify `PACS_PUBLIC_IP` in config.env; confirm `ssh <PACS_SSH_USER>@<PACS_PUBLIC_IP>` works manually |
-| `local-deploy.sh` Permission denied (publickey) | Wrong `PACS_SSH_KEY` for VM5 | Set `PACS_SSH_KEY` in config.env to the correct private key for VM5 |
-| PM2 not found on VM5 | Node.js install failed during init | Re-run `bash deploy/local-deploy.sh init server` — `ensure_node` is idempotent |
-| PACS server won't start: `Cannot find module` | `npm install` not run | Run `bash deploy/local-deploy.sh init server` or `cd pacs/server && npm install` |
-| PACS viewer won't start: `Cannot find module` | `npm install` not run in viewer | Run `bash deploy/local-deploy.sh init viewer` or `cd pacs/viewer && npm install` |
+| `pacs-deploy.sh` SSH connection refused | `PACS_PUBLIC_IP` wrong or VM5 not running | Verify `PACS_PUBLIC_IP` in config.env; confirm `ssh <PACS_SSH_USER>@<PACS_PUBLIC_IP>` works manually |
+| `pacs-deploy.sh` Permission denied (publickey) | Wrong `PACS_SSH_KEY` for VM5 | Set `PACS_SSH_KEY` in config.env to the correct private key for VM5 |
+| PM2 not found on VM5 | Node.js install failed during init | Re-run `bash deploy/pacs-deploy.sh init server` — `ensure_node` is idempotent |
+| PACS server won't start: `Cannot find module` | `npm install` not run | Run `bash deploy/pacs-deploy.sh init server` or `cd pacs/server && npm install` |
+| PACS viewer won't start: `Cannot find module` | `npm install` not run in viewer | Run `bash deploy/pacs-deploy.sh init viewer` or `cd pacs/viewer && npm install` |
 | PACS viewer blank / Cornerstone errors | Missing COOP/COEP headers | Viewer must run through Vite (port 5174) — do not open `index.html` directly; `SharedArrayBuffer` requires cross-origin isolation headers set by Vite config |
-| PACS viewer shows "No images available" | DICOM files not downloaded | Run `cd pacs/server && npm run download` then `bash deploy/local-deploy.sh restart server` |
+| PACS viewer shows "No images available" | DICOM files not downloaded | Run `cd pacs/server && npm run download` then `bash deploy/pacs-deploy.sh restart server` |
 | PACS `/health` returns `studyCount: 0` | Studies directory empty | Download sample files (see Step 5b above) or check `pacs/server/studies/` exists |
-| ThousandEyes can't reach PACS | `PACS_PUBLIC_IP` is `127.0.0.1` | Set `PACS_PUBLIC_IP` to VM5's IP address in `config.env`, re-run `bash deploy/local-deploy.sh restart server` |
-| PACS latency not clearing after demo | `config.env` not saved | Run `bash deploy/local-deploy.sh latency clear` — this rewrites the `PACS_IMAGE_LATENCY_MS` line in config.env and restarts the server |
+| ThousandEyes can't reach PACS | `PACS_PUBLIC_IP` is `127.0.0.1` | Set `PACS_PUBLIC_IP` to VM5's IP address in `config.env`, re-run `bash deploy/pacs-deploy.sh restart server` |
+| PACS latency not clearing after demo | `config.env` not saved | Run `bash deploy/pacs-deploy.sh latency clear` — this rewrites the `PACS_IMAGE_LATENCY_MS` line in config.env and restarts the server |
 | Viewer login returns 401 | Wrong password or PACS server not running | Confirm server is running: `pm2 status careconnect-pacs`; demo password is `Demo123!` for all three accounts (`@careconnect.demo`) |
 | `dcmjs` parse errors in server logs | Corrupted or unsupported DICOM file | Delete the problem file from `pacs/server/studies/` and restart — server falls back to seed data gracefully |

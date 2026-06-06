@@ -61,9 +61,9 @@ function CiscoMark({ size = 40 }: { size?: number }) {
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const defaultEmail = currentPortal === 'patient' ? 'patient@demo.com'
-    : currentPortal === 'admin' ? 'admin@demo.com'
-    : 'provider@demo.com';
+  const defaultEmail = currentPortal === 'patient' ? 'patient@careconnect.demo'
+    : currentPortal === 'admin' ? 'admin@careconnect.demo'
+    : 'provider@careconnect.demo';
   const [email] = useState(defaultEmail);
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);

@@ -14,7 +14,7 @@ test.describe('MyChart - Patient Portal Login', () => {
     await expect(form).toBeVisible({ timeout: 15_000 });
 
     const emailInput = page.locator('[data-testid="login-email-input"]');
-    await expect(emailInput).toHaveValue('patient@demo.com');
+    await expect(emailInput).toHaveValue('patient@careconnect.demo');
 
     // 3. Enter password and submit
     await page.fill('[data-testid="login-password-input"]', PASSWORD);

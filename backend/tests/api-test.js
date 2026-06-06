@@ -74,13 +74,13 @@ async function run() {
   section('2. POST /api/auth/login');
 
   const { status: loginStatus, data: loginData } = await req('POST', '/api/auth/login', {
-    body: { email: 'provider@demo.com', password: 'Demo123!' },
+    body: { email: 'provider@careconnect.demo', password: 'Demo123!' },
   });
 
   let token;
   if (loginStatus === 200 && loginData?.token) {
     token = loginData.token;
-    ok(`Login as provider@demo.com → 200 OK  (role: ${loginData.user?.role})`);
+    ok(`Login as provider@careconnect.demo → 200 OK  (role: ${loginData.user?.role})`);
   } else {
     fail('Login', `expected 200 with token, got ${loginStatus}`);
     console.log(`\n${C.red}Cannot continue without a token.${C.reset}\n`);
