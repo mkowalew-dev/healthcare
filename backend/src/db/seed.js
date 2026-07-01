@@ -125,7 +125,7 @@ async function seed() {
     await client.query('BEGIN');
     await client.query(`
       TRUNCATE clinical_notes, payments, bills, vital_signs, diagnoses, allergies,
-               medications, lab_results, messages, appointments, patients, providers,
+               medications, prescriptions, lab_results, messages, appointments, patients, providers,
                departments, users RESTART IDENTITY CASCADE
     `);
 
@@ -1203,6 +1203,50 @@ async function seed() {
       `, [patId, provId, name, generic, dosage, freq, route, startDate, endDate, status, instructions, refills]);
     }
     console.log('✅ Medications seeded (68)');
+
+    // ========== PRESCRIPTIONS (ePrescribe / Surescripts) ==========
+    // [patId, provId, medName, generic, sig, qty, daysSupply, refills, dosageForm, strength, pharmacy, ncpdp, status, submittedDaysAgo]
+    // Seeded as already-submitted Rx so the ePrescribe list/by-id ThousandEyes steps return data.
+    const prescriptions = [
+      // ── John Smith (provider@careconnect.demo / Dr. Chen) — matches his active medication list ──
+      [IDS.pat1, IDS.prov1, 'Metformin',    'metformin HCl',        'Take 1 tablet by mouth twice daily with meals', 180, 90, 3, 'tablet', '1000mg', 'CVS Pharmacy #4821',       '1234567', 'confirmed', 30],
+      [IDS.pat1, IDS.prov1, 'Lisinopril',   'lisinopril',           'Take 1 tablet by mouth once daily',             90,  90, 5, 'tablet', '10mg',   'CVS Pharmacy #4821',       '1234567', 'confirmed', 30],
+      [IDS.pat1, IDS.prov1, 'Atorvastatin', 'atorvastatin calcium', 'Take 1 tablet by mouth at bedtime',             90,  90, 2, 'tablet', '40mg',   'CVS Pharmacy #4821',       '1234567', 'confirmed', 30],
+      [IDS.pat1, IDS.prov1, 'Aspirin',      'aspirin',              'Take 1 tablet by mouth once daily with food',   90,  90, 11,'tablet', '81mg',   'CVS Pharmacy #4821',       '1234567', 'confirmed', 30],
+
+      // ── A couple for other panel patients so list filters return data for them too ──
+      [IDS.pat2, IDS.prov1, 'Carvedilol',   'carvedilol',           'Take 1 tablet by mouth twice daily with food',  60,  30, 2, 'tablet', '25mg',   'Walgreens #1190',          '7654321', 'confirmed', 14],
+      [IDS.pat2, IDS.prov1, 'Furosemide',   'furosemide',           'Take 1 tablet by mouth once daily in morning',  30,  30, 4, 'tablet', '40mg',   'Walgreens #1190',          '7654321', 'submitted', 3],
+    ];
+    let rxSeq = 0;
+    for (const [patId, provId, medName, generic, sig, qty, daysSupply, refills, dosageForm, strength, pharmacy, ncpdp, status, submittedDaysAgo] of prescriptions) {
+      rxSeq += 1;
+      const rxRef = `RXSEED${String(rxSeq).padStart(4, '0')}`;
+      const submittedAt = past(submittedDaysAgo);
+      const confirmed = status === 'confirmed';
+      const externalResponse = JSON.stringify({
+        success: true,
+        status: 200,
+        data: {
+          messageType: 'NewRxResponse',
+          status: 'Approved',
+          rxReferenceNumber: rxRef,
+          pharmacyVerified: true,
+          note: '[Seed] Surescripts SCRIPT 10.6 — Approved.',
+        },
+      });
+      await client.query(`
+        INSERT INTO prescriptions (patient_id, provider_id, medication_name, generic_name, sig, quantity,
+          days_supply, refills, dosage_form, strength, pharmacy_name, pharmacy_ncpdp, status,
+          surescripts_rx_id, submitted_at, confirmed_at, external_response)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      `, [
+        patId, provId, medName, generic, sig, qty, daysSupply, refills, dosageForm, strength,
+        pharmacy, ncpdp, status, confirmed ? rxRef : null, submittedAt, confirmed ? submittedAt : null,
+        externalResponse,
+      ]);
+    }
+    console.log(`✅ Prescriptions seeded (${prescriptions.length})`);
 
     // ========== BILLS ==========
     const billIds = {};

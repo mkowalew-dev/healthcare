@@ -328,6 +328,84 @@ You have tools to search patients and pull chart summaries. Be concise and clini
 Today is ${today}. You have access to system-wide statistics. Be concise and data-focused.`;
 }
 
+// ── GET /api/ai/ping ───────────────────────────────────────
+// Synthetic-monitoring probe: makes a real Anthropic API call (max_tokens=5)
+// and returns plain JSON so ThousandEyes can assert on the response body.
+// The POST /chat route commits SSE headers immediately and cannot return JSON.
+
+router.get('/ping', authenticate, async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ status: 'error', error: 'AI assistant is not configured on this server' });
+  }
+  try {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const response = await client.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 5,
+      messages: [{ role: 'user', content: 'ping' }],
+    });
+    res.json({ status: 'ok', model: response.model });
+  } catch (err) {
+    logger.error('AI ping error', { error: err.message });
+    res.status(503).json({ status: 'error', error: err.message });
+  }
+});
+
+// ── GET /api/ai/validate ───────────────────────────────────
+// Hallucination-detection probe: forces get_patient_chart on the seeded patient
+// and asserts the DB returned real data. tool_choice forces exactly this tool so
+// the test is deterministic regardless of the prompt Claude might otherwise choose.
+
+router.get('/validate', authenticate, async (req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(503).json({ status: 'error', error: 'AI assistant is not configured on this server' });
+  }
+  if (req.user.role !== 'provider') {
+    return res.status(403).json({ status: 'error', error: 'Validation probe requires provider role' });
+  }
+  try {
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const { rows } = await pool.query(
+      'SELECT first_name, last_name, specialty FROM providers WHERE user_id = $1', [req.user.id]
+    );
+    const profile = rows[0] || null;
+
+    const SEEDED_PATIENT_ID = '66666666-0000-0000-0000-000000000001';
+
+    const response = await client.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 256,
+      system: systemPrompt(req.user, profile),
+      tools: providerTools,
+      tool_choice: { type: 'tool', name: 'get_patient_chart' },
+      messages: [{ role: 'user', content: `Get the chart for patient ID ${SEEDED_PATIENT_ID}` }],
+    });
+
+    const toolUse = response.content.find(b => b.type === 'tool_use');
+    if (!toolUse) {
+      return res.status(503).json({ status: 'error', error: 'Model did not invoke a tool' });
+    }
+
+    const chart = await runProviderTool(toolUse.name, toolUse.input, req.user.id);
+
+    // At least one of these arrays must be non-empty to prove real DB data was returned.
+    const dataVerified =
+      chart.active_medications.length > 0 ||
+      chart.recent_labs.length > 0 ||
+      chart.allergies.length > 0;
+
+    res.json({
+      status: 'ok',
+      model: response.model,
+      tool_called: toolUse.name,
+      data_verified: dataVerified,
+    });
+  } catch (err) {
+    logger.error('AI validate error', { error: err.message });
+    res.status(503).json({ status: 'error', error: err.message });
+  }
+});
+
 // ── POST /api/ai/chat ──────────────────────────────────────
 
 router.post('/chat', authenticate, async (req, res) => {
