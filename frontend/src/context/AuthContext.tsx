@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authApi } from '../services/api';
 import { User, Patient, Provider, AuthContextType } from '../types';
+import { identifyUser, clearIdentity, trackEvent } from '../analytics';
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -17,6 +18,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .then((res) => {
           setUser(res.data.user);
           setProfile(res.data.profile);
+          identifyUser(res.data.user);
         })
         .catch(() => {
           localStorage.removeItem('cc_token');
@@ -38,16 +40,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('cc:session-expired', handleSessionExpired);
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<User> => {
     const res = await authApi.login(email, password);
     const { token: newToken, user: newUser, profile: newProfile } = res.data;
     localStorage.setItem('cc_token', newToken);
     setToken(newToken);
     setUser(newUser);
     setProfile(newProfile);
+    identifyUser(newUser);
+    trackEvent('user.login', { 'enduser.role': newUser.role });
+    return newUser;
   };
 
   const logout = () => {
+    trackEvent('user.logout');
+    clearIdentity();
     localStorage.removeItem('cc_token');
     setToken(null);
     setUser(null);

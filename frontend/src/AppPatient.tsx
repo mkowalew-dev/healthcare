@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import Login from './pages/Login';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
+import { PageTracker } from './hooks/usePageTracking';
 
 // Patient pages — lazy loaded so they don't inflate the initial bundle
 const PatientDashboard      = lazy(() => import('./pages/patient/Dashboard'));
@@ -62,6 +63,8 @@ function RootRedirect() {
 
 function AppPatientRoutes() {
   return (
+    <>
+    <PageTracker />
     <Suspense fallback={<PageFallback />}>
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -87,6 +90,7 @@ function AppPatientRoutes() {
         <Route path="*" element={<RootRedirect />} />
       </Routes>
     </Suspense>
+    </>
   );
 }
 

@@ -8,7 +8,9 @@ const router = express.Router();
 // GET /api/medications
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { patientId, status } = req.query;
+    const { patientId, status, limit, offset } = req.query;
+    const limitVal  = Math.min(parseInt(limit  ?? 200, 10), 500);
+    const offsetVal = parseInt(offset ?? 0, 10);
     let whereClause = '1=1';
     const params = [];
     let idx = 1;
@@ -32,7 +34,8 @@ router.get('/', authenticate, async (req, res) => {
       LEFT JOIN providers pr ON m.provider_id = pr.id
       WHERE ${whereClause}
       ORDER BY m.prescribed_at DESC
-    `, params);
+      LIMIT $${idx++} OFFSET $${idx++}
+    `, [...params, limitVal, offsetVal]);
 
     res.json(result.rows);
   } catch (err) {

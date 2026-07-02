@@ -1,7 +1,7 @@
 {
   "name": "careconnect-vns",
-  "version": "1.0.0",
-  "description": "CareConnect Virtual Nursing Station — virtual care platform, clinical communication, alert triage",
+  "version": "1.1.0",
+  "description": "CareConnect Virtual Nursing Station \u00e2\u20ac\u201d virtual care platform, clinical communication, alert triage",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

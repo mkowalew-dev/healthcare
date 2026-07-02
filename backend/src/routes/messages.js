@@ -9,7 +9,9 @@ const router = express.Router();
 // GET /api/messages - inbox
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { type } = req.query; // 'inbox', 'sent', 'archived'
+    const { type, limit, offset } = req.query; // 'inbox', 'sent', 'archived'
+    const limitVal  = Math.min(parseInt(limit  ?? 100, 10), 500);
+    const offsetVal = parseInt(offset ?? 0, 10);
 
     let whereClause;
     if (type === 'sent') {
@@ -40,7 +42,8 @@ router.get('/', authenticate, async (req, res) => {
       JOIN users ru ON m.recipient_id = ru.id
       WHERE ${whereClause}
       ORDER BY m.sent_at DESC
-    `, [req.user.id]);
+      LIMIT $2 OFFSET $3
+    `, [req.user.id, limitVal, offsetVal]);
 
     res.json(result.rows);
   } catch (err) {

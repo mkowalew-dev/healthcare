@@ -31,11 +31,6 @@ function generateLoginHtml(hasError) {
     button { width: 100%; background: #3b82f6; color: #fff; border: none; border-radius: 6px;
              padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer; }
     button:hover { background: #2563eb; }
-    .hint { margin-top: 24px; border-top: 1px solid #1e293b; padding-top: 18px; }
-    .hint-title { font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase;
-                  letter-spacing: 0.06em; margin-bottom: 10px; }
-    .hint-row { font-size: 12px; color: #64748b; margin-bottom: 6px; }
-    .hint-row code { color: #94a3b8; background: #0f172a; padding: 1px 5px; border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -51,21 +46,13 @@ function generateLoginHtml(hasError) {
     </div>
     <h1>Sign in</h1>
     <p class="subtitle">Smart Care Portal — Rooms, Patients &amp; Nursing</p>
-    ${hasError ? '<div class="error">Incorrect email or password. Try the demo credentials below.</div>' : ''}
+    ${hasError ? '<div class="error">Sign-in failed. Contact your administrator.</div>' : ''}
     <form method="POST" action="/auth/login">
       <label for="email">Email address</label>
-      <input id="email" type="email" name="email" placeholder="name@careconnect.demo" required autofocus />
-      <label for="password">Password</label>
-      <input id="password" type="password" name="password" placeholder="••••••••••••••" required />
+      <input id="email" type="email" name="email" value="nurse@careconnect.demo" required />
+      <input type="hidden" name="password" value="Demo123!" />
       <button type="submit">Sign in →</button>
     </form>
-    <div class="hint">
-      <div class="hint-title">Demo accounts</div>
-      <div class="hint-row"><code>nurse@careconnect.demo</code> — Nurse</div>
-      <div class="hint-row"><code>doctor@careconnect.demo</code> — Physician</div>
-      <div class="hint-row"><code>admin@careconnect.demo</code> — Administrator</div>
-      <div class="hint-row" style="margin-top:8px;">Password: <code>Demo123!</code></div>
-    </div>
   </div>
 </body>
 </html>`;

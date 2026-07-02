@@ -82,8 +82,8 @@ export default function Login() {
     setError('');
 
     try {
-      await login(email, password);
-      navigate('/');
+      const loggedInUser = await login(email, password);
+      navigate(`/${loggedInUser.role}/dashboard`);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally {

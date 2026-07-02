@@ -190,7 +190,7 @@ export interface AuthContextType {
   user: User | null;
   profile: Patient | Provider | null;
   token: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   logout: () => void;
   isLoading: boolean;
 }

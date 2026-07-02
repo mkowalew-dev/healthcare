@@ -147,8 +147,9 @@ setInterval(() => {
 
 // ── Helpers ──────────────────────────────────────────────────
 function fetchJSON(host, port, path) {
+  const headers = SERVICE_TOKEN ? { Authorization: `Bearer ${SERVICE_TOKEN}` } : {};
   return new Promise((resolve, reject) => {
-    const req = http.get({ host, port: parseInt(port, 10), path, timeout: 5000 }, res => {
+    const req = http.get({ host, port: parseInt(port, 10), path, headers, timeout: 5000 }, res => {
       let body = '';
       res.on('data', d => (body += d));
       res.on('end', () => {

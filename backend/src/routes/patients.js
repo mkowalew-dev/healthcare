@@ -8,7 +8,9 @@ const router = express.Router();
 // GET /api/patients - list (provider/admin only)
 router.get('/', authenticate, authorize('provider', 'admin'), async (req, res) => {
   try {
-    const { search, providerId } = req.query;
+    const { search, providerId, limit, offset } = req.query;
+    const limitVal  = Math.min(parseInt(limit  ?? 200, 10), 500);
+    const offsetVal = parseInt(offset ?? 0, 10);
     let whereClause = '1=1';
     const params = [];
     let idx = 1;
@@ -44,7 +46,8 @@ router.get('/', authenticate, authorize('provider', 'admin'), async (req, res) =
       LEFT JOIN departments d ON pr.department_id = d.id
       WHERE ${whereClause}
       ORDER BY p.last_name, p.first_name
-    `, params);
+      LIMIT $${idx++} OFFSET $${idx++}
+    `, [...params, limitVal, offsetVal]);
 
     res.json(result.rows);
   } catch (err) {

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 're
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoadingSpinner } from './components/ui/LoadingSpinner';
 import HaikuLogin from './pages/haiku/HaikuLogin';
+import { PageTracker } from './hooks/usePageTracking';
 import { Inbox, Users, Calendar, LogOut } from 'lucide-react';
 
 const HaikuInbox          = lazy(() => import('./pages/haiku/HaikuInbox'));
@@ -115,6 +116,7 @@ export default function AppHaiku() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <PageTracker />
         <Routes>
           <Route path="/haiku/login" element={<HaikuLogin />} />
           <Route path="/haiku" element={<HaikuRoot />} />

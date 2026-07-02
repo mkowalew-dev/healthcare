@@ -5,6 +5,7 @@ const { getTraceContext } = require('./tracing');
 
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const winston = require('winston');
 const { SensorSimulator } = require('./sensor-sim');
 
@@ -12,6 +13,8 @@ const PORT = parseInt(process.env.SCFP_PORT || '3030', 10);
 const ROOM_COUNT = parseInt(process.env.SCFP_ROOM_COUNT || '24', 10);
 const EVENT_INTERVAL_MS = parseInt(process.env.SCFP_EVENT_INTERVAL_MS || '8000', 10);
 const LOG_DIR = process.env.LOG_DIR || '/var/log/careconnect';
+const JWT_SECRET = process.env.JWT_SECRET || 'careconnect-demo-jwt-secret-2024';
+const SERVICE_TOKEN = process.env.SERVICE_TOKEN || '';
 
 // ── Logger ───────────────────────────────────────────────────
 const logger = winston.createLogger({
@@ -34,6 +37,25 @@ const logger = winston.createLogger({
 const sim = new SensorSimulator(ROOM_COUNT, EVENT_INTERVAL_MS);
 sim.start();
 
+// ── Auth middleware ───────────────────────────────────────────
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const token = authHeader.substring(7);
+  if (SERVICE_TOKEN && token === SERVICE_TOKEN) {
+    req.user = { role: 'service', id: 'vns' };
+    return next();
+  }
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+};
+
 // ── Express app ──────────────────────────────────────────────
 const app = express();
 app.use(cors());
@@ -53,6 +75,8 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+app.use('/api', authenticate);
 
 // ── Health / probe ───────────────────────────────────────────
 app.get('/ping', (_req, res) => res.send('pong'));

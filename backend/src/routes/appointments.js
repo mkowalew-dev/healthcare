@@ -35,15 +35,8 @@ router.get('/', authenticate, async (req, res) => {
       whereClause += ` AND a.scheduled_at >= NOW()`;
     }
 
-    let paginationClause = '';
-    if (limit) {
-      paginationClause += ` LIMIT $${paramIdx++}`;
-      params.push(parseInt(limit, 10));
-      if (offset) {
-        paginationClause += ` OFFSET $${paramIdx++}`;
-        params.push(parseInt(offset, 10));
-      }
-    }
+    const limitVal  = Math.min(parseInt(limit  ?? 200, 10), 500);
+    const offsetVal = parseInt(offset ?? 0, 10);
 
     const result = await pool.query(`
       SELECT
@@ -56,8 +49,9 @@ router.get('/', authenticate, async (req, res) => {
       JOIN providers pr ON a.provider_id = pr.id
       LEFT JOIN departments d ON pr.department_id = d.id
       WHERE ${whereClause}
-      ORDER BY a.scheduled_at DESC${paginationClause}
-    `, params);
+      ORDER BY a.scheduled_at DESC
+      LIMIT $${paramIdx++} OFFSET $${paramIdx++}
+    `, [...params, limitVal, offsetVal]);
 
     res.json(result.rows);
   } catch (err) {

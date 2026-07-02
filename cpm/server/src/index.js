@@ -5,6 +5,7 @@ const { getTraceContext } = require('./tracing');
 
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const winston = require('winston');
 const { VitalSimulator } = require('./vital-sim');
 const { ADLMonitor } = require('./adl-monitor');
@@ -13,6 +14,8 @@ const PORT = parseInt(process.env.CPM_PORT || '3032', 10);
 const DEVICE_COUNT = parseInt(process.env.CPM_DEVICE_COUNT || '20', 10);
 const VITAL_INTERVAL_MS = parseInt(process.env.CPM_VITAL_INTERVAL_MS || '15000', 10);
 const LOG_DIR = process.env.LOG_DIR || '/var/log/careconnect';
+const JWT_SECRET = process.env.JWT_SECRET || 'careconnect-demo-jwt-secret-2024';
+const SERVICE_TOKEN = process.env.SERVICE_TOKEN || '';
 
 // ── Logger ───────────────────────────────────────────────────
 const logger = winston.createLogger({
@@ -32,6 +35,25 @@ sim.start();
 const adl = new ADLMonitor(DEVICE_COUNT);
 adl.start();
 
+// ── Auth middleware ───────────────────────────────────────────
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const token = authHeader.substring(7);
+  if (SERVICE_TOKEN && token === SERVICE_TOKEN) {
+    req.user = { role: 'service', id: 'vns' };
+    return next();
+  }
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+};
+
 // ── Express app ──────────────────────────────────────────────
 const app = express();
 app.use(cors());
@@ -50,6 +72,8 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+app.use('/api', authenticate);
 
 // ── Health / probe ───────────────────────────────────────────
 app.get('/ping', (_req, res) => res.send('pong'));
