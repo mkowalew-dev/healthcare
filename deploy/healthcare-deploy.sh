@@ -546,6 +546,8 @@ init_scfp() {
         SCFP_PORT='${SCFP_PORT}' \
         SCFP_ROOM_COUNT='${SCFP_ROOM_COUNT}' \
         SCFP_EVENT_INTERVAL_MS='${SCFP_EVENT_INTERVAL_MS}' \
+        JWT_SECRET='${JWT_SECRET:-}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
         SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
         SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
         APP_ENV='${APP_ENV:-production}' \
@@ -604,6 +606,8 @@ init_cpm() {
         CPM_PORT='${CPM_PORT}' \
         CPM_DEVICE_COUNT='${CPM_DEVICE_COUNT}' \
         CPM_VITAL_INTERVAL_MS='${CPM_VITAL_INTERVAL_MS}' \
+        JWT_SECRET='${JWT_SECRET:-}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
         SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
         SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
         APP_ENV='${APP_ENV:-production}' \
@@ -628,6 +632,8 @@ update_scfp() {
         SCFP_PORT='${SCFP_PORT}' \
         SCFP_ROOM_COUNT='${SCFP_ROOM_COUNT}' \
         SCFP_EVENT_INTERVAL_MS='${SCFP_EVENT_INTERVAL_MS}' \
+        JWT_SECRET='${JWT_SECRET:-}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
         SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
         SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
         APP_ENV='${APP_ENV:-production}' \
@@ -682,6 +688,8 @@ update_cpm() {
         CPM_PORT='${CPM_PORT}' \
         CPM_DEVICE_COUNT='${CPM_DEVICE_COUNT}' \
         CPM_VITAL_INTERVAL_MS='${CPM_VITAL_INTERVAL_MS}' \
+        JWT_SECRET='${JWT_SECRET:-}' \
+        SERVICE_TOKEN='${SERVICE_TOKEN:-}' \
         SPLUNK_ACCESS_TOKEN='${SPLUNK_ACCESS_TOKEN:-}' \
         SPLUNK_REALM='${SPLUNK_REALM:-us1}' \
         APP_ENV='${APP_ENV:-production}' \
