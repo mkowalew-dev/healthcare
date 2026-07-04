@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.4.1] — 2026-07-04
+
+### Added
+
+**Patient portal test IDs for ThousandEyes transaction coverage**
+
+Added stable `data-testid` attributes to patient-portal pages that previously had none or only dynamic (per-record) ids, giving ThousandEyes Transaction tests reliable wait targets that confirm backend data actually rendered — not just the page shell.
+
+- **Notifications** (`Notifications.tsx`): `notifications-summary`, `notifications-summary-${type}`, `notifications-list`, `notification-item-${n.id}`, `notifications-empty-state` (page previously had zero test ids)
+- **Health Summary** (`HealthSummary.tsx`): `card-patient-info`, `card-latest-vitals`, `card-bp-trend`, `card-allergies`, `card-problem-list`, `card-emergency-contact` (page previously had zero test ids)
+- **Messages** (`Messages.tsx`): `message-list-loading`, `messages-empty-state` — the page is not loader-gated, so these give a clean signal for the inbox-fetch outcome (data / empty / loading)
+
+### Documentation
+
+- `deploy/TE-API-TESTS.md`: added the **CareConnect — Patient Portal (Transaction)** test, a per-page wait-target reference table (load gate + strict data-rendered target for all eight patient pages), loader-gating notes (Messages renders its shell early; Health Summary and Billing use `Promise.all`), and the empty-seed caveat. Registered the test in the platform inventory and added the `cc_patient_password` credential.
+
+---
+
 ## [2.4.0] — 2026-06-06
 
 ### Changed

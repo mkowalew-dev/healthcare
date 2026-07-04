@@ -169,11 +169,11 @@ export default function Messages() {
 
           <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
             {loading ? (
-              <div className="flex items-center justify-center h-full">
+              <div className="flex items-center justify-center h-full" data-testid="message-list-loading">
                 <RefreshCw size={20} className="text-gray-300 animate-spin" />
               </div>
             ) : messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-400">
+              <div className="flex flex-col items-center justify-center h-full text-gray-400" data-testid="messages-empty-state">
                 <MessageSquare size={32} className="mb-2" />
                 <p className="text-sm">No messages</p>
               </div>

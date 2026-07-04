@@ -55,7 +55,7 @@ export default function HealthSummary() {
       </div>
 
       {/* Patient Info Banner */}
-      <div className="card p-6">
+      <div className="card p-6" data-testid="card-patient-info">
         <div className="flex flex-wrap gap-6 items-start">
           <div className="w-16 h-16 rounded-xl bg-cisco-dark-blue flex items-center justify-center flex-shrink-0">
             <span className="text-2xl font-bold text-white">
@@ -85,7 +85,7 @@ export default function HealthSummary() {
         <div className="lg:col-span-2 space-y-6">
           {/* Vitals */}
           {latestVitals && (
-            <div className="card p-5">
+            <div className="card p-5" data-testid="card-latest-vitals">
               <div className="flex items-center gap-2 mb-4">
                 <Activity size={18} className="text-cisco-blue" />
                 <h2 className="font-semibold text-gray-900">Latest Vital Signs</h2>
@@ -171,7 +171,7 @@ export default function HealthSummary() {
 
           {/* BP Trend */}
           {vitalsTrend.length > 1 && (
-            <div className="card p-5">
+            <div className="card p-5" data-testid="card-bp-trend">
               <div className="flex items-center gap-2 mb-4">
                 <TrendingUp size={18} className="text-cisco-blue" />
                 <h2 className="font-semibold text-gray-900">Blood Pressure Trend</h2>
@@ -194,7 +194,7 @@ export default function HealthSummary() {
         {/* Right column */}
         <div className="space-y-6">
           {/* Allergies */}
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-allergies">
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle size={18} className="text-cisco-red" />
               <h2 className="font-semibold text-gray-900">Allergies</h2>
@@ -218,7 +218,7 @@ export default function HealthSummary() {
           </div>
 
           {/* Problem List */}
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-problem-list">
             <div className="flex items-center gap-2 mb-3">
               <Stethoscope size={18} className="text-cisco-blue" />
               <h2 className="font-semibold text-gray-900">Problem List</h2>
@@ -247,7 +247,7 @@ export default function HealthSummary() {
           </div>
 
           {/* Emergency Contact */}
-          <div className="card p-5">
+          <div className="card p-5" data-testid="card-emergency-contact">
             <div className="flex items-center gap-2 mb-3">
               <User size={18} className="text-cisco-blue" />
               <h2 className="font-semibold text-gray-900">Emergency Contact</h2>

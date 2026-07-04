@@ -14,6 +14,7 @@ Store secrets in **Settings → Credentials Repository** before creating any tes
 |----------------|-------|----------|
 | `cc_provider_password` | `Demo123!` | Provider / admin login password |
 | `cc_admin_password` | `Demo123!` | Admin login password |
+| `cc_patient_password` | `Demo123!` | Patient portal (MyChart) login password |
 | `cc_patient_id` | `66666666-0000-0000-0000-000000000001` | Seeded demo patient — John Smith (`patient@careconnect.demo`); used in most step URLs |
 | `cc_provider_id` | `33333333-0000-0000-0000-000000000001` | Seeded demo provider — Dr. Michael Chen (`provider@careconnect.demo`); used in Providers test URLs |
 
@@ -1425,6 +1426,7 @@ No single ThousandEyes test type covers the full failure surface. Each type oper
 | `CareConnect — Infrastructure` | API | CareConnect | ALB + DB health |
 | `CareConnect — Provider Portal` | Page Load | CareConnect | Frontend delivery |
 | `CareConnect — Provider Workflow` | Transaction | CareConnect | Auth + UX |
+| `CareConnect — Patient Portal` | Transaction | CareConnect | Patient auth + data render |
 | `CareConnect — FHIR R4 Suite` | API | CareConnect | FHIR API layer |
 | `CareConnect — Labs & LIS` | API | CareConnect | Lab/LIS API |
 | `CareConnect — Providers` | API | CareConnect | Provider API |
@@ -1452,7 +1454,7 @@ No single ThousandEyes test type covers the full failure surface. Each type oper
 
 ## CareConnect — Page Load & Transaction Tests
 
-These two tests supplement the existing CareConnect API suite by covering the browser-facing failure domains that API tests cannot reach. Schedule them at 5 min — the same cadence as the clinical API tests.
+These tests supplement the existing CareConnect API suite by covering the browser-facing failure domains that API tests cannot reach: the Provider Portal (Page Load), the Provider Workflow (Transaction), and the Patient Portal (Transaction). Schedule them at 5 min — the same cadence as the clinical API tests.
 
 ---
 
@@ -1535,6 +1537,87 @@ async function runScript() {
 | Step 3 (login → dashboard) | > 8 000 ms |
 
 > **Agent selection:** Assign to a **single Enterprise Agent at the clinic site** and one cloud agent. The transaction simulates a provider at a workstation — the EA gives you the real clinical-network experience. Running from too many cloud agents multiplies BrowserBot load with no additional failure-domain signal, since browser-side failures are deterministic (either the JS renders or it doesn't).
+
+---
+
+### CareConnect — Patient Portal (Transaction)
+
+**Test name:** `CareConnect — Patient Portal`
+**Test type:** Transaction
+**Timeout:** 45 s
+**Frequency:** 5 min
+**Start URL:** `https://mychart.pseudo-co.com`
+
+> **Why this test matters?** Exercises the patient-facing MyChart portal login-to-data path in a real browser. The patient portal aggregates several backend APIs per page (the dashboard fans out to five), so a single failed data-fetch renders a page shell with no content while the API Infrastructure test stays green. This transaction waits on the actual rendered data elements — not just the page shell — so it fails when the backend data does not arrive.
+
+> **Credentials:** Use `{{$cc_patient_password}}` from the vault, injected as `process.env.CC_PATIENT_PASSWORD`. Demo login: `patient@careconnect.demo`.
+
+#### Wait-target reference — patient portal pages
+
+Every wait must anchor on a **stable** `data-testid`. Appointment/bill/lab/message/medication *rows* are dynamically named (`appointment-card-${id}`, `bill-row-${id}`, `lab-row-${id}`, `message-item-${id}`, `medication-card-${id}`) — never wait on an exact id; use a CSS prefix selector (`[data-testid^="…"]`) instead. Most pages are **loader-gated** (the whole page renders `<PageLoader/>` until its API calls settle), so any static element appearing confirms the data load finished. Two exceptions are called out below.
+
+| Page | Path | Loader-gated | Load gate (stable) | Data-rendered (strict) | Empty-state id |
+|------|------|:---:|------|------|------|
+| Dashboard | `/patient/dashboard` | ✅ (5 calls, `allSettled`) | `card-billing-summary` | `[data-testid^="appointment-card-"]` | per-widget text |
+| Appointments | `/patient/appointments` | ✅ | `tab-upcoming` | `[data-testid^="appointment-card-"]` | `appointments-empty-state` |
+| Medications | `/patient/medications` | ✅ | `tab-active` | `[data-testid^="medication-card-"]` | `medications-empty-state` |
+| Test Results | `/patient/labs` | ✅ | `stat-total-results` | `[data-testid^="lab-row-"]` | `labs-empty-state` |
+| Billing | `/patient/billing` | ✅ (`Promise.all`) | `card-bills-list` | `[data-testid^="bill-row-"]` | *(none — gate on `card-bills-list`)* |
+| Notifications | `/patient/notifications` | ✅ | `notifications-summary` | `[data-testid^="notification-item-"]` | `notifications-empty-state` |
+| Health Summary | `/patient/health-summary` | ✅ (`Promise.all`) | `card-patient-info` | `card-latest-vitals` *(only if vitals exist)* | *(sections always render)* |
+| Messages | `/patient/messages` | ❌ shell renders early | `[data-testid^="message-item-"]` **or** `messages-empty-state` | `[data-testid^="message-item-"]` | `messages-empty-state` |
+
+> **Loader-gating exceptions.** **Messages** has no page-level loader — the shell (`card-message-list`, `card-message-detail`) renders *before* the inbox fetch, so waiting on those containers passes too early and understates transaction time; wait on `message-item-*` / `messages-empty-state` (both appear only after the fetch resolves), or wait for `message-list-loading` to disappear. **Health Summary** and **Billing** use `Promise.all` (not `allSettled`): if one call fails the loader still clears and the page renders with empty/zero data rather than erroring — add a strict data-rendered wait if you need to catch that.
+
+> **Empty-seed caveat.** The strict `[data-testid^="…-row/card/item-"]` selectors assume the test patient has ≥1 record on that page. If the seed data can be empty, wait on **either** the row prefix **or** the page's empty-state id, so a correct-but-empty page does not register as a failure.
+
+*Transaction script:*
+
+```javascript
+import { By, until } from 'selenium-webdriver';
+import { driver, test } from 'thousandeyes';
+
+runScript();
+
+async function runScript() {
+  await test.step('Load login page', async () => {
+    await driver.get('https://mychart.pseudo-co.com');
+    await driver.wait(until.elementLocated(By.css('input[type="email"]')), 8000);
+  });
+
+  await test.step('Enter credentials', async () => {
+    await driver.findElement(By.css('input[type="email"]'))
+      .sendKeys('patient@careconnect.demo');
+    await driver.findElement(By.css('input[type="password"]'))
+      .sendKeys(process.env.CC_PATIENT_PASSWORD);
+  });
+
+  await test.step('Submit and await dashboard', async () => {
+    await driver.findElement(By.css('button[type="submit"]')).click();
+    await driver.wait(until.urlContains('/patient'), 12000);
+    // Loader-gated: the billing summary card appears only after all 5 dashboard APIs settle
+    await driver.wait(until.elementLocated(By.css('[data-testid="card-billing-summary"]')), 10000);
+  });
+
+  await test.step('Open appointments and await data', async () => {
+    await driver.get('https://mychart.pseudo-co.com/patient/appointments');
+    await driver.wait(until.elementLocated(By.css('[data-testid="tab-upcoming"]')), 8000);
+    // Strict: wait for a real appointment card OR the empty state (seed may have no appts)
+    await driver.wait(until.elementLocated(By.css(
+      '[data-testid^="appointment-card-"], [data-testid="appointments-empty-state"]'
+    )), 10000);
+  });
+}
+```
+
+*Alert thresholds:*
+| Condition | Threshold |
+|-----------|-----------|
+| Availability | Any step error or timeout |
+| Total transaction time | > 25 000 ms |
+| Step 3 (login → dashboard) | > 10 000 ms |
+
+> **Agent selection:** Assign to one Enterprise Agent at the clinic site and one cloud agent, same rationale as the Provider Workflow test. To extend coverage to other pages (labs, billing, medications, notifications, health summary), add a `test.step` per page using the load gate and strict target from the reference table above.
 
 ---
 

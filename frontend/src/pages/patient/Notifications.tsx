@@ -50,12 +50,13 @@ export default function PatientNotifications() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="notifications-summary">
         {Object.entries(TYPE_CONFIG).slice(0, 4).map(([type, cfg]) => {
           const Icon = cfg.icon;
           return (
             <div key={type} className={`stat-card cursor-pointer border-2 transition-colors ${filter === type ? 'border-cisco-blue' : 'border-transparent'}`}
-              onClick={() => setFilter(filter === type ? 'all' : type)}>
+              onClick={() => setFilter(filter === type ? 'all' : type)}
+              data-testid={`notifications-summary-${type}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-gray-500">{cfg.label}</span>
                 <div className={`w-7 h-7 rounded-full ${cfg.bg} flex items-center justify-center`}>
@@ -92,13 +93,13 @@ export default function PatientNotifications() {
 
       {/* Notification list */}
       {filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 text-center py-16 text-gray-400">
+        <div className="bg-white rounded-xl border border-gray-200 text-center py-16 text-gray-400" data-testid="notifications-empty-state">
           <Bell size={40} className="mx-auto mb-3 opacity-30" />
           <p>No notifications yet.</p>
           <p className="text-sm mt-1">You'll receive alerts here for lab results, appointments, and prescriptions.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3" data-testid="notifications-list">
           {filtered.map(n => {
             const cfg = TYPE_CONFIG[n.type] || TYPE_CONFIG.general;
             const Icon = cfg.icon;
@@ -107,6 +108,7 @@ export default function PatientNotifications() {
               <div
                 key={n.id}
                 className={`bg-white rounded-xl border border-gray-200 p-4 flex gap-4 ${n.type === 'lab_critical' ? 'border-red-200' : ''}`}
+                data-testid={`notification-item-${n.id}`}
               >
                 <div className={`w-10 h-10 rounded-full ${cfg.bg} flex items-center justify-center flex-shrink-0`}>
                   <Icon size={18} className={cfg.color} />
