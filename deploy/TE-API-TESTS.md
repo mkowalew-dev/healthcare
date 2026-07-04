@@ -1562,7 +1562,7 @@ Every wait must anchor on a **stable** `data-testid`. Appointment/bill/lab/messa
 | Appointments | `/patient/appointments` | ✅ | `tab-upcoming` | `[data-testid^="appointment-card-"]` | `appointments-empty-state` |
 | Medications | `/patient/medications` | ✅ | `tab-active` | `[data-testid^="medication-card-"]` | `medications-empty-state` |
 | Test Results | `/patient/labs` | ✅ | `stat-total-results` | `[data-testid^="lab-row-"]` | `labs-empty-state` |
-| Billing | `/patient/billing` | ✅ (`Promise.all`) | `card-bills-list` | `[data-testid^="bill-row-"]` | *(none — gate on `card-bills-list`)* |
+| Billing | `/patient/billing` | ✅ (`Promise.all`) | `card-bills-list` | `[data-testid^="bill-row-"]` | `bills-empty-state` |
 | Notifications | `/patient/notifications` | ✅ | `notifications-summary` | `[data-testid^="notification-item-"]` | `notifications-empty-state` |
 | Health Summary | `/patient/health-summary` | ✅ (`Promise.all`) | `card-patient-info` | `card-latest-vitals` *(only if vitals exist)* | *(sections always render)* |
 | Messages | `/patient/messages` | ❌ shell renders early | `[data-testid^="message-item-"]` **or** `messages-empty-state` | `[data-testid^="message-item-"]` | `messages-empty-state` |

@@ -116,7 +116,7 @@ export default function BillPay() {
 
         <div className="divide-y divide-gray-100">
           {filtered.length === 0 ? (
-            <div className="py-12 text-center text-sm text-gray-500">No bills found</div>
+            <div className="py-12 text-center text-sm text-gray-500" data-testid="bills-empty-state">No bills found</div>
           ) : (
             filtered.map((bill) => {
               const remaining = Number(bill.patient_amount) - Number(bill.paid_amount);
