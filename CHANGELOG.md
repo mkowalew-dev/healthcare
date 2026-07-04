@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.4.2] — 2026-07-04
+
+### Added
+
+**Automatic version sync between CHANGELOG and package.json**
+
+`CHANGELOG.md` is now the single source of truth for the project version. A pre-commit hook reads the latest `## [X.Y.Z]` heading and writes it into `frontend/package.json` and `backend/package.json`, staging the change so it lands in the same commit — the two can no longer drift (they were stuck at a stale `2.1.0` before `2.4.1`).
+
+- `scripts/sync-version.sh` — reads the top CHANGELOG version and rewrites each package.json `version` field; supports `--check` (verify-only, non-zero exit on mismatch) for CI.
+- `.githooks/pre-commit` — runs the sync on every commit and re-stages touched package.json files. Enable per clone with `git config core.hooksPath .githooks`.
+- README "Changelog" section documents the workflow.
+
+---
+
 ## [2.4.1] — 2026-07-04
 
 ### Added

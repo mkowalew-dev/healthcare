@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# pre-commit — auto-sync package.json versions with CHANGELOG.md.
+#
+# Reads the latest version from CHANGELOG.md, writes it into every package.json,
+# and stages any resulting change so it lands in the same commit.
+#
+# Enable in a fresh clone with:  git config core.hooksPath .githooks
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+"$ROOT/scripts/sync-version.sh" apply
+
+# Re-stage any package.json the sync touched so it's part of this commit.
+for f in frontend/package.json backend/package.json; do
+  if [[ -f "$ROOT/$f" ]] && ! git diff --quiet -- "$f"; then
+    git add "$f"
+  fi
+done

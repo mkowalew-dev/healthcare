@@ -288,6 +288,15 @@ The database is pre-loaded with:
 
 See [`CHANGELOG.md`](CHANGELOG.md) for full release history.
 
+**Versioning:** `CHANGELOG.md` is the single source of truth for the version. The most recent `## [X.Y.Z]` heading is auto-synced into `frontend/package.json` and `backend/package.json` by a pre-commit hook. Bump the version by adding a new CHANGELOG entry — the package.json files update themselves on commit. Enable the hook once per clone:
+
+```bash
+git config core.hooksPath .githooks
+# or run the sync manually at any time:
+./scripts/sync-version.sh          # apply
+./scripts/sync-version.sh --check  # verify only (used in CI)
+```
+
 ---
 
 ## Deployment
