@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # CareConnect Internal Portal — Ubuntu Installation Script
-# Usage: sudo ./install.sh [--uninstall] [--port PORT]
+# Usage: sudo ./install.sh [--uninstall] [--port PORT] [--mirror]
 # Default port: 8090
+#
+# Flags:
+#   --port PORT   Serve the main portal on PORT instead of 8090
+#   --mirror      Also install the mirror site on :10566 (mirror.pseudo-co.com)
+#                 Requires /var/www/html/file.pptx to be present before serving
+#   --uninstall   Remove the portal (add --mirror to also remove the mirror site)
 
 set -euo pipefail
 
@@ -9,13 +15,17 @@ PORTAL_NAME="careconnect-portal"
 WEBROOT="/var/www/${PORTAL_NAME}"
 NGINX_CONF="/etc/nginx/sites-available/${PORTAL_NAME}"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${PORTAL_NAME}"
+MIRROR_NGINX_CONF="/etc/nginx/sites-available/careconnect-mirror"
+MIRROR_NGINX_ENABLED="/etc/nginx/sites-enabled/careconnect-mirror"
 PORT=8090
 UNINSTALL=false
+MIRROR=false
 
 # Parse flags
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --uninstall) UNINSTALL=true ;;
+    --mirror)    MIRROR=true ;;
     --port)      PORT="$2"; shift ;;
     *)           echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
@@ -34,6 +44,11 @@ if [[ "$UNINSTALL" == "true" ]]; then
   rm -f  "${NGINX_ENABLED}"
   rm -f  "${NGINX_CONF}"
   rm -rf "${WEBROOT}"
+  if [[ "$MIRROR" == "true" ]]; then
+    echo "→ Removing mirror site..."
+    rm -f "${MIRROR_NGINX_ENABLED}"
+    rm -f "${MIRROR_NGINX_CONF}"
+  fi
   nginx -t && nginx -s reload 2>/dev/null || true
   echo "✓ ${PORTAL_NAME} removed."
   exit 0
@@ -77,6 +92,18 @@ if [[ -e "/etc/nginx/sites-enabled/default" ]]; then
   echo "  (Leaving default nginx site enabled — it uses a different port)"
 fi
 
+# ── Install mirror site ──────────────────────────────────────────────────────
+if [[ "$MIRROR" == "true" ]]; then
+  echo "→ Installing mirror site on :10566 (mirror.pseudo-co.com)..."
+  if [[ ! -f "${SCRIPT_DIR}/nginx-mirror.conf" ]]; then
+    echo "✗ nginx-mirror.conf not found at ${SCRIPT_DIR}/nginx-mirror.conf" >&2
+    exit 1
+  fi
+  cp "${SCRIPT_DIR}/nginx-mirror.conf" "${MIRROR_NGINX_CONF}"
+  ln -sf "${MIRROR_NGINX_CONF}" "${MIRROR_NGINX_ENABLED}"
+  echo "✓ Mirror site configured"
+fi
+
 # ── Validate and reload nginx ─────────────────────────────────────────────────
 echo "→ Testing nginx configuration..."
 nginx -t
@@ -93,6 +120,14 @@ echo "  URL:  http://${HOST_IP}:${PORT}"
 echo "  Root: ${WEBROOT}"
 echo "  Logs: /var/log/nginx/${PORTAL_NAME}.access.log"
 echo ""
-echo "  To uninstall:   sudo ./install.sh --uninstall"
-echo "  To change port: sudo ./install.sh --port 9000"
+if [[ "$MIRROR" == "true" ]]; then
+  echo "  Mirror site: http://mirror.pseudo-co.com:10566"
+  echo "  Mirror logs: /var/log/nginx/mirror.access.log"
+  echo "  NOTE: Place /var/www/html/file.pptx before the mirror site will serve content."
+  echo ""
+fi
+echo "  To uninstall:          sudo ./install.sh --uninstall"
+echo "  To uninstall (+ mirror): sudo ./install.sh --uninstall --mirror"
+echo "  To change port:        sudo ./install.sh --port 9000"
+echo "  To include mirror:     sudo ./install.sh --mirror"
 echo ""

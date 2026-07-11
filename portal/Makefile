@@ -22,6 +22,7 @@ release: build
 	@mkdir -p $(RELEASE_DIR)/dist
 	@cp -r dist/. $(RELEASE_DIR)/dist/
 	@cp nginx.conf $(RELEASE_DIR)/
+	@cp nginx-mirror.conf $(RELEASE_DIR)/
 	@cp scripts/install.sh $(RELEASE_DIR)/
 	@chmod +x $(RELEASE_DIR)/install.sh
 	@cd .release && tar -czf ../$(ARTIFACT) careconnect-portal-$(VERSION)

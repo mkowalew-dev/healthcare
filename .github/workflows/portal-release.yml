@@ -73,16 +73,22 @@ jobs:
             --notes "$(cat <<'NOTES'
           ## CareConnect Internal Portal — v${VERSION}
 
-          Self-contained Ubuntu release. Includes the compiled SPA, nginx config, and installer.
+          Self-contained Ubuntu release. Includes the compiled SPA, nginx configs, and installer.
 
           ### Install on Ubuntu
           \`\`\`bash
           tar -xzf careconnect-portal-${VERSION}.tar.gz
           cd careconnect-portal-${VERSION}
-          sudo ./install.sh          # serves on :8090
-          sudo ./install.sh --port 9000   # custom port
-          sudo ./install.sh --uninstall   # remove
+          sudo ./install.sh                    # main portal on :8090
+          sudo ./install.sh --port 9000        # custom port
+          sudo ./install.sh --mirror           # also install mirror site on :10566
+          sudo ./install.sh --uninstall        # remove portal
+          sudo ./install.sh --uninstall --mirror  # remove portal + mirror site
           \`\`\`
+
+          ### Mirror site (nginx-mirror.conf)
+          The `--mirror` flag installs a second nginx site on port 10566 (`mirror.pseudo-co.com`)
+          that serves `/var/www/html/file.pptx`. Place the file at that path before enabling the site.
 
           ### Update an existing install
           Pull the new tarball, extract, and re-run \`sudo ./install.sh\` — it overwrites the previous deployment.
