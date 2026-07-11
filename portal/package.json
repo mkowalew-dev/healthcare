@@ -1,25 +1,19 @@
 {
-  "name": "careconnect-frontend",
-  "version": "2.5.0",
+  "name": "careconnect-portal",
+  "version": "1.0.0",
+  "description": "CareConnect Internal Employee Portal",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 8090",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview --port 8090"
   },
   "dependencies": {
-    "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
-    "@opentelemetry/api": "^1.8.0",
-    "@splunk/otel-web": "^0.18.0",
-    "axios": "1.14.0",
-    "clsx": "^2.1.0",
-    "date-fns": "^3.6.0",
     "lucide-react": "^0.356.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-hook-form": "^7.51.1",
     "react-router-dom": "^6.22.3",
     "recharts": "^2.12.4"
   },

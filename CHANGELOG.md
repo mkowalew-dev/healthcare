@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.5.0] — 2026-07-11
+
+### Added
+
+**CareConnect Internal Employee Portal (`portal/`)**
+
+A standalone SharePoint-style intranet for CareConnect employees — fully independent of the EHR frontend, with its own Vite build pipeline, release artifact, and Ubuntu installer. Styled with the same Cisco design system (IBM Plex Sans, `#049FD9` cisco-blue / `#1D4289` cisco-dark-blue palette, identical white sidebar with dark-blue header, `.card`, `.btn-primary` patterns) as the EHR app — zero visual drift between products.
+
+Seven pages: Dashboard (KPI tiles, 30-day CCHX stock area chart, announcements, company stories, events, employee spotlight), News & Announcements (category filter + search + pinned), Company Stories (featured banner + article detail view), Performance (revenue bar chart, patient satisfaction trend, workforce donut), Resources (HR/IT/Clinical/Legal document library), Employee Directory (searchable + department filter), Events Calendar (RSVP toggle).
+
+- `portal/` — self-contained React 18 + TypeScript + Vite + Tailwind + Recharts application
+- `portal/Makefile` — `make dev`, `make build`, `make release VERSION=x.y.z` targets
+- `portal/nginx.conf` — production nginx config: gzip compression, security headers, cache-control, port 8090
+- `portal/scripts/install.sh` — self-contained Ubuntu installer (`--port`, `--uninstall` flags); auto-installs nginx, writes site config, reloads service
+- **Release artifact:** `make release` → `careconnect-portal-{version}.tar.gz` containing `dist/`, `nginx.conf`, `install.sh`
+
+**GitHub Actions portal release workflow (`.github/workflows/portal-release.yml`)**
+
+Triggers on any push to `main` touching `portal/**`, and on `portal-vX.Y.Z` tag pushes.
+- Every qualifying main push: `npm ci` → TypeScript check + Vite build → `make release` → 30-day downloadable workflow artifact
+- Tag push (`portal-v1.0.0`): all of the above, plus creates a versioned GitHub Release with the tarball and install instructions attached
+
+**Payment gateway latency simulation with OTel distributed tracing (`backend/src/routes/bills.js`)**
+
+Adds an instrumented simulated payment-gateway pre-auth span to the billing route. Fires automatically Mon–Fri 13:00–13:25 CDT with a 4-second delay; tunable via `BILLING_DELAY_MS` env var (set to `0` to disable entirely). Produces a `payment-gateway.pre-auth` span with gateway attributes visible in Splunk APM — demonstrates payment-path latency observability for demo scenarios.
+
+---
+
 ## [2.4.2] — 2026-07-04
 
 ### Added

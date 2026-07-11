@@ -1,14 +1,51 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
+const { trace, SpanStatusCode } = require('@opentelemetry/api');
 const pool = require('../db/pool');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logger } = require('../middleware/logger');
 
 const router = express.Router();
 
+// Returns true Mon–Fri between 13:00 and 13:25 CDT (UTC-5).
+function isInDemoWindow() {
+  const now = new Date();
+  const cdt = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+  const day = cdt.getUTCDay(); // 0=Sun … 6=Sat
+  const minuteOfDay = cdt.getUTCHours() * 60 + cdt.getUTCMinutes();
+  return day >= 1 && day <= 5 && minuteOfDay >= 780 && minuteOfDay < 805; // 780=13:00, 805=13:25
+}
+
+// Simulates payment-gateway latency for distributed tracing demos.
+// Fires automatically Mon–Fri 13:00–13:25 CDT with a 4s delay.
+// Override with BILLING_DELAY_MS env var; set to 0 to disable entirely.
+async function simulateGatewayLatency(req) {
+  const delayMs = parseInt(process.env.BILLING_DELAY_MS ?? '4000', 10);
+  if (!delayMs || !isInDemoWindow()) return;
+
+  const tracer = trace.getTracer('careconnect-billing');
+  await tracer.startActiveSpan('payment-gateway.pre-auth', async (span) => {
+    try {
+      span.setAttributes({
+        'gateway.provider': 'CareConnect Payment Services',
+        'gateway.action': 'pre-authorization',
+        'gateway.delay_ms': delayMs,
+        'gateway.simulated': true,
+        'http.request_id': req.requestId || '',
+      });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      span.setStatus({ code: SpanStatusCode.OK });
+    } finally {
+      span.end();
+    }
+  });
+}
+
 // GET /api/bills
 router.get('/', authenticate, async (req, res) => {
   try {
+    await simulateGatewayLatency(req);
+
     const { status, patientId } = req.query;
     let whereClause = '1=1';
     const params = [];

@@ -1,6 +1,6 @@
 # CareConnect EHR
 
-**v2.4.0** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
+**v2.5.0** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
 
 ## Tech Stack
 
@@ -13,6 +13,7 @@
 | Charts | Recharts (lazy-loaded) |
 | Tracing | OpenTelemetry + Splunk APM |
 | RUM | @splunk/otel-web (clinical, patient, and Haiku portals) |
+| Internal Portal | React 18 + Vite + Tailwind CSS + IBM Plex Sans (port 8090) |
 
 ## Demo Credentials
 
@@ -94,6 +95,27 @@ Modelled after EPIC Haiku. Provider-only PWA optimised for phones and tablets.
 - **Patients** — Assigned patient worklist with live search; urgency signals (critical lab count, today's appointment flag)
 - **Quick View** — At-a-glance patient chart: latest vitals grid, allergies, problem list, recent labs, active medications
 - **Schedule** — Today's appointment timeline with status chips and chief complaint; taps through to Quick View
+
+### Internal Employee Portal (`portal/`)
+
+SharePoint-style intranet built on the same Cisco design system as the EHR (IBM Plex Sans, `cisco-blue`/`cisco-dark-blue` palette, identical sidebar and card patterns). Runs as a completely separate build — independent of the EHR frontend.
+
+| Page | Content |
+|------|---------|
+| **Dashboard** | Hero banner, KPI tiles (CCHX stock, revenue YTD, patient satisfaction, headcount), announcements feed, 30-day stock area chart, company stories, upcoming events, employee spotlight |
+| **News & Announcements** | Category-filtered, searchable accordion list; pinned + priority indicators |
+| **Company Stories** | Featured article banner, card grid, full-article detail view |
+| **Performance** | Revenue bar chart (actual vs budget), satisfaction trend line chart, workforce donut, 6 KPI tiles |
+| **Resources** | HR, IT, Clinical, and Legal/Compliance document library |
+| **Directory** | Searchable employee card grid with department filter |
+| **Events Calendar** | Category-filtered events list with RSVP toggle |
+
+**Tech:** React 18 + TypeScript + Vite + Tailwind CSS (Cisco theme) + Recharts + IBM Plex Sans (self-hosted)  
+**Port:** 8090 (configurable)  
+**Dev:** `cd portal && npm run dev`  
+**Release:** `cd portal && make release` → `careconnect-portal-{version}.tar.gz`
+
+---
 
 ### Smart Care Facility Platform (Azure — optional)
 
@@ -317,6 +339,26 @@ See [`deploy/DEPLOYMENT.md`](deploy/DEPLOYMENT.md) for the full multi-VM guide.
 ```bash
 bash deploy/deploy.sh all       # Deploys API + Frontend + Mock
 bash deploy/deploy.sh mock      # Mock services only
+```
+
+**Internal Portal (Ubuntu — standalone):**
+
+The portal ships as a self-contained tarball. A GitHub Actions workflow (`.github/workflows/portal-release.yml`) builds and publishes it automatically when `portal/**` changes on `main`, and creates a versioned GitHub Release on a `portal-vX.Y.Z` tag.
+
+```bash
+# Build locally
+cd portal && make release
+# → careconnect-portal-1.0.0.tar.gz
+
+# Install on any Ubuntu host
+tar -xzf careconnect-portal-1.0.0.tar.gz
+cd careconnect-portal-1.0.0
+sudo ./install.sh                 # serves on :8090
+sudo ./install.sh --port 9000     # custom port
+sudo ./install.sh --uninstall     # remove
+
+# Tag and release via CI
+git tag portal-v1.0.0 && git push origin portal-v1.0.0
 ```
 
 **Endpoint Synthetic Tests (Windows test machine):**
