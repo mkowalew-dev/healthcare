@@ -345,6 +345,17 @@ bash deploy/deploy.sh mock      # Mock services only
 
 The portal ships as a self-contained tarball. A GitHub Actions workflow (`.github/workflows/portal-release.yml`) builds and publishes it automatically when `portal/**` changes on `main`, and creates a versioned GitHub Release on a `portal-vX.Y.Z` tag.
 
+**Host requirements (Ubuntu target):**
+
+| Requirement | Notes |
+|---|---|
+| Ubuntu 20.04 LTS or newer | Uses `apt-get` and `systemctl`; any Debian-based distro with systemd works |
+| Root / sudo access | `install.sh` requires root — enforced at startup |
+| Internet access | Required only if nginx is not already installed (`apt-get install nginx`) |
+| nginx | Auto-installed by `install.sh` if absent — no manual pre-install needed |
+| Port 8090 available | Or pass `--port N`; open in firewall if UFW is active: `sudo ufw allow 8090/tcp` |
+| **No Node.js required** | The tarball contains pre-built static assets — no runtime dependencies |
+
 ```bash
 # Build locally
 cd portal && make release
