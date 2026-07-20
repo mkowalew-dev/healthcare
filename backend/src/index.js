@@ -104,6 +104,7 @@ app.use('/api/notifications', proxy(SVC_NOTIFICATIONS, 'careconnect-notification
 app.use('/api/messages',      proxy(SVC_NOTIFICATIONS, 'careconnect-notifications'));
 app.use('/fhir',              proxy(SVC_FHIR,          'careconnect-fhir'));
 app.use('/api/admin',         proxy(SVC_ADMIN,         'careconnect-admin'));
+app.use('/api/analytics',    proxy(SVC_ADMIN,         'careconnect-admin'));
 app.use('/api/bills',         proxy(SVC_BILLING,       'careconnect-billing'));
 app.use('/api/ai',            proxy(SVC_AI,            'careconnect-ai'));
 app.use('/api/haiku',         proxy(SVC_HAIKU,         'careconnect-haiku'));

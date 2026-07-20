@@ -296,3 +296,23 @@ CREATE INDEX IF NOT EXISTS idx_lis_orders_patient ON lis_orders(patient_id);
 CREATE INDEX IF NOT EXISTS idx_lis_orders_ordered_at ON lis_orders(ordered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_lab_results_ordered_at ON lab_results(ordered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_lab_results_pending ON lab_results(ordered_at DESC) WHERE status = 'pending';
+
+-- ── Analytics ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS analytics_pageviews (
+  id           BIGSERIAL    PRIMARY KEY,
+  session_id   VARCHAR(36)  NOT NULL,
+  user_id      UUID         REFERENCES users(id) ON DELETE SET NULL,
+  app          VARCHAR(20)  NOT NULL DEFAULT 'clinical',
+  path         VARCHAR(1000) NOT NULL,
+  route        VARCHAR(1000) NOT NULL,
+  referrer     VARCHAR(1000),
+  ip_address   INET         NOT NULL,
+  user_agent   TEXT,
+  created_at   TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_created_at ON analytics_pageviews(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_analytics_app        ON analytics_pageviews(app);
+CREATE INDEX IF NOT EXISTS idx_analytics_route      ON analytics_pageviews(route);
+CREATE INDEX IF NOT EXISTS idx_analytics_session    ON analytics_pageviews(session_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_ip         ON analytics_pageviews(ip_address);

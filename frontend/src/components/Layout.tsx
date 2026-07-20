@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Calendar, FlaskConical, Pill, CreditCard, MessageSquare,
   Heart, Users, ClipboardList, ShieldCheck, LogOut, Menu, X, Bell,
-  ChevronDown, Activity, Settings, UserCog, Zap, Send,
+  ChevronDown, Activity, Settings, UserCog, Zap, Send, BarChart2,
 } from 'lucide-react';
 import { AiChat } from './AiChat';
 
@@ -49,6 +49,7 @@ const providerNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/admin/analytics', label: 'Analytics', icon: BarChart2 },
   { to: '/admin/users', label: 'Users', icon: UserCog },
   { to: '/admin/departments', label: 'Departments', icon: ShieldCheck },
   { to: '/admin/integrations', label: 'Integrations', icon: Zap },

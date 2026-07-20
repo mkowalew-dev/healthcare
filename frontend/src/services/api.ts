@@ -150,6 +150,22 @@ export const adminApi = {
   departments: () => api.get('/api/admin/departments'),
 };
 
+// Analytics
+export const analyticsApi = {
+  overview: (days: number, app?: string) =>
+    api.get('/api/analytics/overview', { params: { days, app } }),
+  timeseries: (days: number, app?: string) =>
+    api.get('/api/analytics/timeseries', { params: { days, app } }),
+  topPages: (days: number, app?: string) =>
+    api.get('/api/analytics/top-pages', { params: { days, app } }),
+  topIPs: (days: number, app?: string) =>
+    api.get('/api/analytics/top-ips', { params: { days, app } }),
+  apps: (days: number) =>
+    api.get('/api/analytics/apps', { params: { days } }),
+  realtime: () =>
+    api.get('/api/analytics/realtime'),
+};
+
 // Notes
 export const notesApi = {
   list: (patientId: string) =>

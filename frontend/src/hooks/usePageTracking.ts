@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { trackEvent } from '../analytics';
+import { trackEvent, trackPageView } from '../analytics';
 
 // Replace UUID and numeric path segments so /patient/123 and /patient/456
 // collapse to the same route name in Splunk RUM dashboards.
@@ -17,10 +17,13 @@ export function usePageTracking(): void {
     const route = normalizeRoute(location.pathname);
     if (previous.current === route) return;
     previous.current = route;
+    // Splunk RUM span
     trackEvent('page.view', {
       'page.path': location.pathname,
       'page.route': route,
     });
+    // In-app analytics store
+    trackPageView(location.pathname, route);
   }, [location.pathname]);
 }
 

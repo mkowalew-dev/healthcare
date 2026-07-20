@@ -33,3 +33,49 @@ export function trackEvent(name: string, attributes?: Record<string, string>): v
   span.setStatus({ code: SpanStatusCode.OK });
   span.end();
 }
+
+// ── In-app analytics (stored in Postgres, surfaced in /admin/analytics) ───────
+
+function getSessionId(): string {
+  let id = sessionStorage.getItem('cc_analytics_sid');
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem('cc_analytics_sid', id);
+  }
+  return id;
+}
+
+function getUserIdFromToken(): string | null {
+  const token = localStorage.getItem('cc_token');
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.id ?? null;
+  } catch { return null; }
+}
+
+function getApp(path: string): string {
+  if (path.startsWith('/haiku')) return 'haiku';
+  if (path.startsWith('/patient')) return 'mychart';
+  return 'clinical';
+}
+
+// Fire-and-forget — sends a pageview event to the in-app analytics store.
+export function trackPageView(path: string, route: string): void {
+  try {
+    const payload = {
+      sessionId: getSessionId(),
+      userId: getUserIdFromToken(),
+      app: getApp(path),
+      path,
+      route,
+      referrer: document.referrer || null,
+    };
+    fetch('/api/analytics/pageview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => { /* analytics failure must not break the app */ });
+  } catch { /* same */ }
+}

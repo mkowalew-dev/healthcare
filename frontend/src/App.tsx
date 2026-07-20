@@ -19,6 +19,7 @@ const AdminDashboard  = lazy(() => import('./pages/admin/Dashboard'));
 const UserManagement  = lazy(() => import('./pages/admin/UserManagement'));
 const Departments     = lazy(() => import('./pages/admin/Departments'));
 const Integrations    = lazy(() => import('./pages/admin/Integrations'));
+const Analytics       = lazy(() => import('./pages/admin/Analytics'));
 
 const PageFallback = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -101,6 +102,7 @@ function AppRoutes() {
           <Route path="users" element={<UserManagement />} />
           <Route path="departments" element={<Departments />} />
           <Route path="integrations" element={<Integrations />} />
+          <Route path="analytics" element={<Analytics />} />
           <Route index element={<Navigate to="dashboard" replace />} />
         </Route>
 

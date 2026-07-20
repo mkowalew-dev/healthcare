@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.5.2] — 2026-07-20
+
+### Added
+
+**In-app analytics dashboard (`/admin/analytics`)**
+
+A self-hosted, Google Analytics-style web analytics system for the full CareConnect ecosystem — no external tracking service, all data stored in PostgreSQL and accessible only to admin users.
+
+**Data collection**
+
+- New `analytics_pageviews` table (`session_id`, `user_id`, `app`, `path`, `route`, `referrer`, `ip_address INET`, `user_agent`, `created_at`) with five covering indexes for the query patterns used by the dashboard.
+- `POST /api/analytics/pageview` — unauthenticated ingest endpoint; captures the real client IP from `X-Forwarded-For` server-side so it cannot be spoofed in the request body. App name is validated against an allowlist (`clinical`, `mychart`, `haiku`, `pacs`, `portal`).
+- `trackPageView()` added to `frontend/src/analytics.ts` — generates a per-browser-session UUID (stored in `sessionStorage`), decodes the JWT for user identity, detects the app from the URL path, and POSTs asynchronously with `keepalive: true`. Failure is silent so analytics never blocks navigation.
+- `usePageTracking` hook updated to call `trackPageView` alongside the existing Splunk RUM span on every route change. All three SPAs (Clinical, MyChart, Haiku) already mount `<PageTracker />`, so coverage is automatic with no per-app changes.
+
+**Backend API** (served through the existing `careconnect-admin` service on port 3016, proxied at `/api/analytics`):
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/analytics/overview` | KPI summary (pageviews, sessions, unique visitors, authenticated users) with period-over-period % change for the trend chips |
+| `GET /api/analytics/timeseries` | Daily pageviews / sessions for the area chart |
+| `GET /api/analytics/top-pages` | Most visited normalized routes (UUIDs/IDs collapsed to `/:id`) |
+| `GET /api/analytics/top-ips` | Most active IP addresses with per-app usage and last-seen time |
+| `GET /api/analytics/apps` | Traffic breakdown by app for the donut chart |
+| `GET /api/analytics/realtime` | Last 30 minutes of page view events + active session count (last 5 min) |
+
+All read endpoints require `role=admin` JWT. All accept `?days=7|30|90` and `?app=clinical|mychart|haiku|pacs|portal` query params.
+
+**Frontend dashboard** (`frontend/src/pages/admin/Analytics.tsx`):
+
+- **Header controls** — App filter (All / Clinical / MyChart / Haiku / PACS / Portal) and date range selector (7d / 30d / 90d).
+- **KPI cards** — Sessions, Pageviews, Unique Visitors, Authenticated Users; each shows a period-over-period % change chip (green ↑ / red ↓).
+- **Pageviews over time** — Recharts `AreaChart` with gradient fill (GA4 style); dual series: Pageviews (solid) + Sessions (dashed).
+- **Top Pages table** — Rank, normalized route, app badge, inline progress bar, sortable by views / sessions / visitors; expand to all rows.
+- **App breakdown** — Recharts donut chart + percentage breakdown list; each app has a consistent color (`clinical`=#049FD9, `mychart`=#6EBE4A, `haiku`=#FBAB18, `pacs`=#8B5CF6, `portal`=#1D4289).
+- **Top IPs table** — Per-IP inline progress bars, app badges, `auth` badge for IPs with authenticated sessions, last-seen relative time.
+- **Real-time feed** — Last 50 events from the past 30 minutes with device icon (desktop/mobile), browser detection, IP, app badge, and relative timestamp. Pulsing green dot shows active session count (last 5 min). Auto-refreshes every 30 seconds; manual refresh button.
+- "Analytics" nav item added to the admin sidebar.
+
+**Deploy:** `bash deploy/healthcare-deploy.sh update api && bash deploy/healthcare-deploy.sh update frontend`  
+**Access:** Log in as `admin@careconnect.demo` → Admin sidebar → **Analytics**
+
+---
+
 ## [2.5.1] — 2026-07-20
 
 ### Fixed

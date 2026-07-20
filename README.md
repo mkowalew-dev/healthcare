@@ -1,6 +1,6 @@
 # CareConnect EHR
 
-**v2.5.0** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
+**v2.5.2** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
 
 ## Tech Stack
 
@@ -85,6 +85,7 @@ npm run dev       # React app on :5173
 
 ### Admin Portal
 - **Dashboard** — KPIs, appointment trend charts, department utilization, user distribution
+- **Analytics** — Real-time web analytics dashboard across the full CareConnect ecosystem (Clinical, MyChart, Haiku). Sessions, pageviews, unique visitors, per-IP traffic, top pages, app breakdown donut chart, and a live 30-minute activity feed that auto-refreshes every 30 seconds. Filterable by app and date range (7d / 30d / 90d). Data stored in PostgreSQL; no third-party tracking service required.
 - **User Management** — View all users, activate/deactivate accounts
 - **Departments** — Department overview with provider counts
 - **Integration Health** — Live connectivity dashboard for all external services, latency metrics, notification trigger panel, and mock chaos controls

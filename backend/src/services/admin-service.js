@@ -18,6 +18,7 @@ app.get('/health', (req, res) =>
 );
 
 app.use('/api/admin', require('../routes/admin'));
+app.use('/api/analytics', require('../routes/analytics'));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }));
 app.use((err, req, res, next) => res.status(500).json({ error: 'Internal server error' }));
