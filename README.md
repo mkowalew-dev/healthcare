@@ -195,7 +195,7 @@ See [`deploy/DEPLOYMENT.md` → Endpoint Synthetic Tests](deploy/DEPLOYMENT.md) 
 ### Splunk
 - All API requests logged in structured JSON with `requestId`, `userId`, `duration`, `statusCode`
 - Integration calls logged with `vendor`, `latencyMs`, `url` fields for service-level visibility
-- OpenTelemetry traces via `@splunk/otel` — service map shows API → Mock dependency
+- OpenTelemetry traces via `@splunk/otel` — service map shows full BFF → API → microservice → DB topology; `net`/`dns` instrumentations disabled across all services to suppress phantom inferred nodes from low-level TCP spans
 
 ---
 
@@ -206,7 +206,10 @@ The API and frontend are optimized for realistic demo latency profiles:
 **API query optimization**
 - Patient/provider role lookups use a single JOIN or inline subquery rather than a pre-fetch — eliminates one DB round-trip on every authenticated list call
 - `GET /api/appointments` supports `?limit=N&offset=N` for pagination
-- Indexes on `clinical_notes(patient_id)`, `patients(user_id)`, and `providers(user_id)` ensure all role-based WHERE clauses hit indexes
+- Indexes on `clinical_notes(patient_id)`, `patients(user_id)`, `providers(user_id)`, and `users(email)` ensure all role-based and auth WHERE clauses hit indexes
+- Partial index `idx_lab_results_pending ON lab_results(ordered_at DESC) WHERE status = 'pending'` makes the lab simulator SELECT O(pending rows) instead of O(all rows)
+- Auth login runs `UPDATE last_login` and the role profile `SELECT` concurrently via `Promise.all` — one fewer sequential DB round trip on every login
+- Lab simulator bulk-updates all pending rows in two queries (`unnest` + `ANY`) instead of O(2N) sequential round trips
 
 **Frontend bundle splitting**
 The React build produces four cacheable vendor chunks plus per-route async chunks:

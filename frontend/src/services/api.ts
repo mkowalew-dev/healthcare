@@ -40,6 +40,7 @@ function handleAuthError(error: { response?: { status: number }, config?: { url?
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
 });
 api.interceptors.request.use(attachTraceHeaders);
 api.interceptors.response.use((r) => r, handleAuthError);
@@ -52,6 +53,7 @@ api.interceptors.response.use((r) => r, handleAuthError);
 const bff = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 15000,
 });
 bff.interceptors.request.use(attachTraceHeaders);
 bff.interceptors.response.use((r) => r, handleAuthError);

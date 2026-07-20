@@ -35,30 +35,29 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Update last login
-    await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
-
     const token = generateToken(user);
 
-    // Get profile based on role
-    let profile = null;
-    if (user.role === 'patient') {
-      const pt = await pool.query(
-        `SELECT p.*, pr.first_name as provider_first, pr.last_name as provider_last
-         FROM patients p
-         LEFT JOIN providers pr ON p.primary_provider_id = pr.id
-         WHERE p.user_id = $1`, [user.id]
-      );
-      profile = pt.rows[0] || null;
-    } else if (user.role === 'provider') {
-      const pv = await pool.query(
-        `SELECT p.*, d.name as department_name
-         FROM providers p
-         LEFT JOIN departments d ON p.department_id = d.id
-         WHERE p.user_id = $1`, [user.id]
-      );
-      profile = pv.rows[0] || null;
-    }
+    // Run last_login update and profile fetch in parallel — neither depends on the other.
+    const profileQuery = user.role === 'patient'
+      ? pool.query(
+          `SELECT p.*, pr.first_name as provider_first, pr.last_name as provider_last
+           FROM patients p
+           LEFT JOIN providers pr ON p.primary_provider_id = pr.id
+           WHERE p.user_id = $1`, [user.id])
+      : user.role === 'provider'
+      ? pool.query(
+          `SELECT p.*, d.name as department_name
+           FROM providers p
+           LEFT JOIN departments d ON p.department_id = d.id
+           WHERE p.user_id = $1`, [user.id])
+      : Promise.resolve({ rows: [] });
+
+    const [, profileResult] = await Promise.all([
+      pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]),
+      profileQuery,
+    ]);
+
+    const profile = profileResult.rows[0] || null;
 
     logger.info('User login successful', { userId: user.id, role: user.role, requestId: req.requestId });
 
@@ -86,25 +85,22 @@ router.get('/me', authenticate, async (req, res) => {
     }
 
     const user = result.rows[0];
-    let profile = null;
 
+    let profileResult = { rows: [] };
     if (user.role === 'patient') {
-      const pt = await pool.query(
+      profileResult = await pool.query(
         `SELECT p.*, pr.first_name as provider_first, pr.last_name as provider_last
          FROM patients p
          LEFT JOIN providers pr ON p.primary_provider_id = pr.id
-         WHERE p.user_id = $1`, [user.id]
-      );
-      profile = pt.rows[0] || null;
+         WHERE p.user_id = $1`, [user.id]);
     } else if (user.role === 'provider') {
-      const pv = await pool.query(
+      profileResult = await pool.query(
         `SELECT p.*, d.name as department_name
          FROM providers p
          LEFT JOIN departments d ON p.department_id = d.id
-         WHERE p.user_id = $1`, [user.id]
-      );
-      profile = pv.rows[0] || null;
+         WHERE p.user_id = $1`, [user.id]);
     }
+    const profile = profileResult.rows[0] || null;
 
     res.json({ user, profile });
   } catch (err) {

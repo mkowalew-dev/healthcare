@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.5.1] — 2026-07-20
+
+### Fixed
+
+**Splunk APM phantom node suppression across all services**
+
+`net` and `dns` instrumentations were creating low-level `tcp.connect` and `dns.lookup` spans that carried `net.peer.name` without a `peer.service` label, causing Splunk APM to render anonymous inferred nodes (ALB hostname and `127.0.0.1`) alongside the named service map. The fix is applied consistently across every service that runs `@splunk/otel`:
+
+- `backend/src/tracing.js` — existing fix carried forward; `net`/`dns` disabled via both `OTEL_NODE_DISABLED_INSTRUMENTATIONS` env var and `getNodeAutoInstrumentations` options
+- `bff/src/tracing.js` — same suppression added; additionally fixed a type mismatch in the `requestHook` port comparison (strict `===` against a number failed when OTel stored `net.peer.port` as a string, so `peer.service` was never stamped on BFF→API spans)
+- `cpm/server/src/tracing.js`, `pacs/server/src/tracing.js`, `scfp/server/src/tracing.js`, `vns/server/src/tracing.js` — same `net`/`dns` suppression added
+
+**Lab simulator N+1 query pattern causing broad API slowness**
+
+The lab simulator fired one `UPDATE lab_results` and one `UPDATE lis_orders` per pending row inside a sequential `for` loop — O(2N) round trips to Postgres on every tick. With a large seed dataset this created sustained write pressure that degraded response times across all services sharing the same PostgreSQL instance. Replaced with two bulk queries using `unnest($1::uuid[])` for lab results and `ANY($1::uuid[])` for LIS orders, reducing every simulation run to 3 round trips regardless of batch size.
+
+Added a partial index `idx_lab_results_pending ON lab_results(ordered_at DESC) WHERE status = 'pending'` — the simulator's `SELECT` filtered on both `status` and `ordered_at` but only an `ordered_at` index existed, causing a full scan on a growing table.
+
+**Auth login latency (`POST /api/auth/login`)**
+
+Three stacked bottlenecks on the login critical path:
+
+1. No index on `users(email)` — every login did a full table scan; added `UNIQUE INDEX idx_users_email ON users(email)`.
+2. Sequential post-bcrypt DB writes — `UPDATE last_login` and the profile `SELECT` ran in series; replaced with `Promise.all([updateLastLogin, profileQuery])` so they execute concurrently.
+3. Demo password hashes at bcrypt cost 10 (~300 ms on small cloud VMs) — reduced to cost 8 (~30 ms) via `BCRYPT_ROUNDS` env var (default 8); applied at re-seed time so existing hash cost factors are updated on next deploy.
+
+**Haiku UUID guard on lab acknowledgement**
+
+`PATCH /api/haiku/labs/:id/acknowledge` with an empty or malformed `criticalLabId` passed the invalid value directly to the DB query, producing an unhandled Postgres error and a 500 response. Added a UUID format guard that returns 404 before the query runs.
+
+**`deploy/04-update.sh` — `systemctl daemon-reload` before API restart**
+
+The API systemd unit was not being reloaded after ecosystem config regeneration, causing PM2 to start with a stale service definition. Added `daemon-reload` between config write and `systemctl restart careconnect-api`.
+
+### Changed
+
+**Frontend — axios request timeout**
+
+Both the direct API client and BFF client in `frontend/src/services/api.ts` had no timeout configured. A stalled backend call (DB busy at startup, BFF restarting) left `Promise.allSettled` pending indefinitely, keeping the patient dashboard on `<PageLoader />` with no path to recovery. Set `timeout: 15000` on both clients so any hung call fails within 15 s and the dashboard renders.
+
+**Patient dashboard — error state on total API failure**
+
+Added an explicit error panel (with reload button) when all five dashboard data calls reject. Previously a full API outage produced an infinite loading spinner with no user-visible feedback.
+
+---
+
 ## [2.5.0] — 2026-07-11
 
 ### Added

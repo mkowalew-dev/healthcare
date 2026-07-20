@@ -15,6 +15,7 @@ export default function PatientDashboard() {
   const { profile } = useAuth();
   const patient = profile as Patient;
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [upcomingAppts, setUpcomingAppts] = useState<Appointment[]>([]);
   const [recentLabs, setRecentLabs] = useState<LabResult[]>([]);
   const [activeMeds, setActiveMeds] = useState<Medication[]>([]);
@@ -30,6 +31,9 @@ export default function PatientDashboard() {
       messagesApi.unreadCount(),
     ])
       .then(([appts, labs, meds, billSum, msgs]) => {
+        const anyFulfilled = [appts, labs, meds, billSum, msgs].some(r => r.status === 'fulfilled');
+        if (!anyFulfilled) { setLoadError(true); return; }
+
         if (appts.status === 'fulfilled') {
           const sorted = [...appts.value.data].sort((a: Appointment, b: Appointment) =>
             a.scheduled_at.localeCompare(b.scheduled_at)
@@ -49,6 +53,19 @@ export default function PatientDashboard() {
   }, []);
 
   if (loading) return <PageLoader />;
+
+  if (loadError) return (
+    <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4 text-center">
+      <AlertTriangle size={40} className="text-cisco-red" />
+      <div>
+        <p className="text-lg font-semibold text-gray-800">Unable to load dashboard</p>
+        <p className="text-sm text-gray-500 mt-1">The API is not responding. Please try again.</p>
+      </div>
+      <button onClick={() => window.location.reload()} className="btn-primary">
+        Reload
+      </button>
+    </div>
+  );
 
   // Strip timezone offset so appointment times display as stored (not converted to browser tz)
   const parseApptDate = (iso: string) => parseISO(iso.replace('Z', '').replace(/[+-]\d{2}:\d{2}$/, ''));

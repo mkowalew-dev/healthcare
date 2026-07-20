@@ -38,22 +38,46 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   let apiPort;
   try { apiPort = parseInt(new URL(API_URL).port || '3001', 10); } catch (_) { apiPort = 3001; }
 
+  // Disable tcp.connect and dns.lookup spans before start() so the SDK's
+  // internal getNodeAutoInstrumentations() call picks up the env var.
+  // These spans carry net.peer.name without peer.service, which causes
+  // Splunk APM to create phantom inferred service nodes.
+  process.env.OTEL_NODE_EXCLUDED_URLS = [
+    process.env.OTEL_NODE_EXCLUDED_URLS, '/health', '/ping',
+  ].filter(Boolean).join(',');
+  process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = [
+    process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS, 'net', 'dns',
+  ].filter(Boolean).join(',');
+
   const startOptions = {
     serviceName: SERVICE_NAME,
     accessToken: ACCESS_TOKEN,
     endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
   };
 
+  // Map any port the BFF might use to reach the API gateway (ALB port, nginx
+  // proxy port, or direct localhost fallback) to the canonical service name.
+  // Object-key lookup coerces both string and number ports, so it is immune to
+  // the type returned by OTel's HTTP instrumentation (net.peer.port may be a
+  // string '3001' or a number 3001 depending on SDK version).
+  const API_PORT_MAP = { [apiPort]: 'careconnect-api-gwy' };
+
   try {
     const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
     startOptions.instrumentations = getNodeAutoInstrumentations({
       '@opentelemetry/instrumentation-http': {
+        ignoreIncomingRequestHook: (req) => {
+          const p = req.url || '';
+          return p === '/health' || p === '/ping';
+        },
         requestHook: (span, _request) => {
-          if (span.attributes?.['net.peer.port'] === apiPort) {
-            span.setAttribute('peer.service', 'careconnect-api-gwy');
-          }
+          const port = span.attributes?.['net.peer.port'];
+          const svc = API_PORT_MAP[port];
+          if (svc) span.setAttribute('peer.service', svc);
         },
       },
+      '@opentelemetry/instrumentation-net': { enabled: false },
+      '@opentelemetry/instrumentation-dns': { enabled: false },
     });
   } catch (_) {
     // @opentelemetry/auto-instrumentations-node unavailable — default instrumentations used

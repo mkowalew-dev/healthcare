@@ -106,31 +106,45 @@ async function runSimulation(minAgeMs) {
     return;
   }
 
-  let resulted = 0;
-  let abnormal = 0;
-  let critical = 0;
+  const ids = [], values = [], units = [], ranges = [], statuses = [];
+  let resulted = 0, abnormal = 0, critical = 0;
 
   for (const row of pending.rows) {
     const r = generateResult(row.test_code, row.test_name);
-
-    await pool.query(
-      `UPDATE lab_results
-       SET value = $1, unit = $2, reference_range = $3, status = $4, resulted_at = NOW()
-       WHERE id = $5`,
-      [r.value, r.unit, r.reference_range, r.status, row.id],
-    );
-
-    // Also mark the linked LIS order as resulted
-    await pool.query(
-      `UPDATE lis_orders SET status = 'resulted', resulted_at = NOW()
-       WHERE lab_result_id = $1 AND status != 'resulted'`,
-      [row.id],
-    );
-
+    ids.push(row.id);
+    values.push(r.value);
+    units.push(r.unit);
+    ranges.push(r.reference_range);
+    statuses.push(r.status);
     if (r.status === 'critical') critical++;
     else if (r.status === 'abnormal') abnormal++;
     else resulted++;
   }
+
+  // Single bulk UPDATE for lab_results (2 round trips total vs. 2N)
+  await pool.query(
+    `UPDATE lab_results SET
+       value           = v.value,
+       unit            = v.unit,
+       reference_range = v.ref,
+       status          = v.status,
+       resulted_at     = NOW()
+     FROM (SELECT
+       unnest($1::uuid[])  AS id,
+       unnest($2::text[])  AS value,
+       unnest($3::text[])  AS unit,
+       unnest($4::text[])  AS ref,
+       unnest($5::text[])  AS status
+     ) AS v
+     WHERE lab_results.id = v.id`,
+    [ids, values, units, ranges, statuses],
+  );
+
+  await pool.query(
+    `UPDATE lis_orders SET status = 'resulted', resulted_at = NOW()
+     WHERE lab_result_id = ANY($1::uuid[]) AND status != 'resulted'`,
+    [ids],
+  );
 
   logger.info('Lab simulator: batch complete', {
     total: pending.rows.length,

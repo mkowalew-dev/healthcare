@@ -54,6 +54,13 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     process.env.OTEL_EXPORTER_OTLP_HEADERS = `X-SF-Token=${ACCESS_TOKEN}`;
   }
 
+  process.env.OTEL_NODE_EXCLUDED_URLS = [
+    process.env.OTEL_NODE_EXCLUDED_URLS, '/health', '/ping',
+  ].filter(Boolean).join(',');
+  process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = [
+    process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS, 'net', 'dns',
+  ].filter(Boolean).join(',');
+
   const startOptions = {
     serviceName: SERVICE_NAME,
     accessToken: ACCESS_TOKEN,
@@ -68,13 +75,18 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     const { getNodeAutoInstrumentations } = require('@opentelemetry/auto-instrumentations-node');
     startOptions.instrumentations = getNodeAutoInstrumentations({
       '@opentelemetry/instrumentation-http': {
+        ignoreIncomingRequestHook: (req) => {
+          const p = req.url || '';
+          return p === '/health' || p === '/ping';
+        },
         requestHook: (span, _request) => {
           const port = span.attributes?.['net.peer.port'];
           const svc = LOOPBACK_SERVICES[port];
           if (svc) span.setAttribute('peer.service', svc);
         },
       },
-
+      '@opentelemetry/instrumentation-net': { enabled: false },
+      '@opentelemetry/instrumentation-dns': { enabled: false },
     });
   } catch (_) {
     // @opentelemetry/auto-instrumentations-node unavailable — default instrumentations used

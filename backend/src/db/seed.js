@@ -4,7 +4,8 @@ const pool = require('./pool');
 const fs = require('fs');
 const path = require('path');
 
-const SALT_ROUNDS = 10;
+// Cost 8 keeps demo login fast enough for TE synthetic tests (~30ms vs ~300ms at 10).
+const SALT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? '8', 10);
 
 // Fixed UUIDs for referential integrity
 const IDS = {

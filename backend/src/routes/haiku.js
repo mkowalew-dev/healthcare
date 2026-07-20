@@ -202,6 +202,9 @@ router.patch('/labs/:id/acknowledge', authenticate, authorize('provider'), async
     if (!provider) return res.status(404).json({ error: 'Provider not found' });
 
     const { id } = req.params;
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(id)) return res.status(404).json({ error: 'Lab result not found' });
+
     const ts = new Date().toISOString();
     const annotation = `[Reviewed via Haiku] Dr. ${provider.first_name} ${provider.last_name} — ${ts}`;
 

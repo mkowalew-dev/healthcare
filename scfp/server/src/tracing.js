@@ -25,6 +25,13 @@ if (!ACCESS_TOKEN && !process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     process.env.OTEL_EXPORTER_OTLP_HEADERS = `X-SF-Token=${ACCESS_TOKEN}`;
   }
 
+  process.env.OTEL_NODE_EXCLUDED_URLS = [
+    process.env.OTEL_NODE_EXCLUDED_URLS, '/health', '/ping',
+  ].filter(Boolean).join(',');
+  process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS = [
+    process.env.OTEL_NODE_DISABLED_INSTRUMENTATIONS, 'net', 'dns',
+  ].filter(Boolean).join(',');
+
   try {
     start({ serviceName: SERVICE_NAME, accessToken: ACCESS_TOKEN, endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT });
     console.log(`[tracing] Splunk APM started — service=${SERVICE_NAME}`);

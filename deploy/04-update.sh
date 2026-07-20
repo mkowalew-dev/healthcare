@@ -192,6 +192,7 @@ ECOEOF
     fi
 
     # Restart via systemd — pm2-runtime re-reads ecosystem.config.js and starts all services
+    systemctl daemon-reload
     systemctl restart careconnect-api
     sleep 3
     systemctl is-active --quiet careconnect-api && \
