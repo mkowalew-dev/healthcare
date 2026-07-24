@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { resolve } from 'path';
 
 // Cornerstone DICOM image loader uses web workers and WebAssembly codecs.
 // The COOP/COEP headers below enable SharedArrayBuffer, required by those codecs.
 // The production server (Nginx) must also send these headers on the viewer origin.
 export default defineConfig({
+  resolve: {
+    alias: { '@careconnect/ui': resolve(__dirname, '../../packages/ui/src/index.ts') },
+  },
   plugins: [
     react(),
     VitePWA({

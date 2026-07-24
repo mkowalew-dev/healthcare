@@ -10,6 +10,7 @@
     "generate-icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "@careconnect/ui": "*",
     "@splunk/otel-web": "^0.18.0",
     "@cornerstonejs/core": "^4.22.3",
     "@cornerstonejs/tools": "^4.22.3",

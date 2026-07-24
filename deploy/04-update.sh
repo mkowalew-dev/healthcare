@@ -204,11 +204,30 @@ ECOEOF
     info "Updating Frontend VM..."
     [[ $EUID -ne 0 ]] && err "Run as root"
 
-    BUILD_TMP="/tmp/careconnect-frontend-build"
-    rm -rf "${BUILD_TMP}"
+    # BUILD_ROOT mirrors the monorepo layout so the Vite alias
+    # (../packages/ui/src/index.ts) and npm workspace link both resolve correctly.
+    BUILD_ROOT="/tmp/careconnect-build"
+    BUILD_TMP="${BUILD_ROOT}/frontend"
+    rm -rf "${BUILD_ROOT}"
+    mkdir -p "${BUILD_ROOT}"
     cp -r "${SCRIPT_DIR}/../frontend" "${BUILD_TMP}"
+
+    # Copy the shared UI package — required by the Vite alias: ../packages/ui
+    if [[ -d "${SCRIPT_DIR}/../packages" ]]; then
+      cp -r "${SCRIPT_DIR}/../packages" "${BUILD_ROOT}/packages"
+    fi
+
+    # Bootstrap workspace root so npm links @careconnect/ui locally
+    if [[ -f "${SCRIPT_DIR}/../package.json" ]]; then
+      cp "${SCRIPT_DIR}/../package.json" "${BUILD_ROOT}/package.json"
+      cd "${BUILD_ROOT}"
+      npm install --quiet
+    else
+      cd "${BUILD_TMP}"
+      npm install --quiet
+    fi
+
     cd "${BUILD_TMP}"
-    npm install --quiet
     # Write build-time env vars to .env.production so Vite's dotenv loader
     # picks them up reliably — more robust than inline env var assignments
     # which can be dropped by npm's process spawning in some environments.
@@ -226,7 +245,7 @@ EOF
 
     rsync -a --delete "${BUILD_TMP}/dist/" "${WEB_ROOT}/"
     chmod -R 755 "${WEB_ROOT}"
-    rm -rf "${BUILD_TMP}"
+    rm -rf "${BUILD_ROOT}"
 
     # Regenerate Nginx config. Run on every frontend update to keep upstream in sync.
     BFF_PORT="${BFF_PORT:-3003}"

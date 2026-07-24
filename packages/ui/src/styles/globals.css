@@ -1,0 +1,26 @@
+@import '@fontsource/ibm-plex-sans/300.css';
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-sans/700.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --cisco-blue: #049FD9;
+    --cisco-dark-blue: #1D4289;
+    --cisco-cyan: #00BCEB;
+    --cisco-green: #6EBE4A;
+    --cisco-orange: #FBAB18;
+    --cisco-red: #E2231A;
+    --cisco-gray: #58585B;
+    --cisco-light-gray: #F5F6F7;
+  }
+
+  body {
+    @apply font-sans text-gray-800 bg-gray-50 antialiased;
+  }
+}

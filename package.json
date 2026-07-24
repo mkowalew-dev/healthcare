@@ -1,0 +1,15 @@
+{
+  "name": "careconnect",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "frontend",
+    "portal",
+    "pacs/viewer"
+  ],
+  "scripts": {
+    "storybook": "npm run storybook --workspace=packages/ui",
+    "build-storybook": "npm run build-storybook --workspace=packages/ui"
+  }
+}

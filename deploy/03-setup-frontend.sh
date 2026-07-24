@@ -129,17 +129,36 @@ fi
 # ── Build the React application ───────────────────────────────
 info "Building React frontend..."
 
-BUILD_TMP="/tmp/careconnect-frontend-build"
+# BUILD_ROOT mirrors the monorepo layout so the Vite alias
+# (../packages/ui/src/index.ts) and npm workspace link both resolve correctly.
+BUILD_ROOT="/tmp/careconnect-build"
+BUILD_TMP="${BUILD_ROOT}/frontend"
 
-# Wipe any leftover build dir from a previous run
-rm -rf "${BUILD_TMP}"
+rm -rf "${BUILD_ROOT}"
+mkdir -p "${BUILD_ROOT}"
 
-# Copy frontend source to a temp build dir, excluding node_modules
 rsync -a --exclude 'node_modules' "${FRONTEND_SRC}/" "${BUILD_TMP}/"
-cd "${BUILD_TMP}"
 
-# Install all dependencies (including devDeps needed for build)
-npm install --quiet
+# Copy the shared UI package — required by the Vite alias: ../packages/ui
+PACKAGES_SRC="$(dirname "${FRONTEND_SRC}")/packages"
+if [[ -d "${PACKAGES_SRC}" ]]; then
+  rsync -a --exclude 'node_modules' --exclude '.storybook' \
+    "${PACKAGES_SRC}/" "${BUILD_ROOT}/packages/"
+fi
+
+# Bootstrap workspace root so npm links @careconnect/ui locally instead of
+# trying to fetch it from the public registry (it is a private workspace package).
+ROOT_PKG="$(dirname "${FRONTEND_SRC}")/package.json"
+if [[ -f "${ROOT_PKG}" ]]; then
+  cp "${ROOT_PKG}" "${BUILD_ROOT}/package.json"
+  cd "${BUILD_ROOT}"
+  npm install --quiet
+else
+  cd "${BUILD_TMP}"
+  npm install --quiet
+fi
+
+cd "${BUILD_TMP}"
 
 # Splunk RUM vars and portal hostnames are baked into the bundle at build time.
 # Written to .env.production so Vite's dotenv loader picks them up reliably.
@@ -166,7 +185,7 @@ chmod -R 755 "${WEB_ROOT}"
 log "Files deployed to ${WEB_ROOT}"
 
 cd /
-rm -rf "${BUILD_TMP}"
+rm -rf "${BUILD_ROOT}"
 
 # ── Configure Nginx ────────────────────────────────────────────
 # Nginx load-balances across the API cluster (upstream api_cluster),

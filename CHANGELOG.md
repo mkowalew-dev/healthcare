@@ -5,6 +5,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.6.0] — 2026-07-21
+
+### Added
+
+**`@careconnect/ui` — shared component library (`packages/ui/`)**
+
+Introduces a monorepo-level shared component library that consolidates the Cisco design system into a single source of truth for all three frontend applications (Clinical EHR, Internal Portal, PACS Viewer).
+
+**Package structure**
+
+- `packages/ui/` — `@careconnect/ui` package (v0.1.0). Exports TypeScript source directly; consumed at build time via a Vite `resolve.alias` in each app — no pre-compilation step required.
+- Root `package.json` bootstraps npm workspaces (`packages/*`, `frontend`).
+- Shared `tailwind.config.js` declares the canonical Cisco design token set (`cisco-blue`, `cisco-dark-blue`, `cisco-cyan`, `cisco-green`, `cisco-orange`, `cisco-red`, `cisco-gray`, `cisco-light-gray`), IBM Plex Sans font stack, and card/header shadow scales.
+
+**Components**
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| `Badge` | migrated | Status badges — 9 semantic variants + domain-specific composites (`LabStatusBadge`, `AppointmentStatusBadge`, `BillStatusBadge`, `MedStatusBadge`, `AllergySeverityBadge`) |
+| `Modal` | migrated | Accessible dialog with sm/md/lg/xl sizes, scrollable body, optional footer slot |
+| `LoadingSpinner` | migrated | Spinning indicator (sm/md/lg) + `PageLoader` full-height wrapper |
+| `Button` | **new** | `primary` / `secondary` / `danger` / `ghost` variants; sm/md/lg sizes; `loading` state with spinner; left/right icon slots |
+| `Card` | **new** | Container with optional header + action slot; `StatCard` variant with label, value, delta, and icon |
+| `Input` | **new** | Label, hint, error, disabled, left/right adornment; ARIA `aria-invalid` + `aria-describedby` wired |
+
+All components re-exported from `packages/ui/src/index.ts`. Existing imports through `frontend/src/components/ui/*` unchanged (those files now re-export from `@careconnect/ui` for backward compatibility).
+
+**Storybook 8**
+
+- `packages/ui/.storybook/main.ts` — `@storybook/react-vite` framework, `@storybook/addon-essentials`, `@storybook/addon-a11y`
+- `packages/ui/.storybook/preview.ts` — IBM Plex Sans fonts, Tailwind globals, three background presets (white / surface / dark)
+- Stories for all 6 components using CSF 3 (`satisfies Meta<typeof Component>`), `autodocs`, and realistic healthcare data (patient names, lab statuses, clinical workflows)
+
+```bash
+npm run storybook          # from repo root → http://localhost:6006
+cd packages/ui && npm run storybook
+```
+
+**App wiring**
+
+All three apps (`frontend`, `portal`, `pacs/viewer`) updated with:
+- `resolve.alias` in `vite.config.ts` pointing `@careconnect/ui` → `../packages/ui/src/index.ts`
+- `paths` entry in `tsconfig.json` for editor/type-checker resolution
+- `@careconnect/ui: "*"` in `package.json` for workspace linking
+
+**Deploy script updates**
+
+`healthcare-deploy.sh`, `03-setup-frontend.sh`, and `04-update.sh` updated to handle the monorepo layout:
+- `init_frontend` / `update_frontend` now rsync `packages/` and the root `package.json` to the EC2 VM alongside `frontend/`
+- Both `03-setup-frontend.sh` and `04-update.sh` restructure the temp build directory to mirror the monorepo (`/tmp/careconnect-build/frontend/` + `/tmp/careconnect-build/packages/`) so the Vite alias resolves correctly and `npm install` links `@careconnect/ui` locally via workspace rather than hitting the npm registry
+
+**CI update**
+
+`portal-release.yml` install step changed from `npm ci` (portal working directory) to `npm ci --workspace=portal` from the workspace root, ensuring the workspace `package-lock.json` is used and only portal dependencies are installed.
+
+---
+
 ## [2.5.2] — 2026-07-20
 
 ### Added

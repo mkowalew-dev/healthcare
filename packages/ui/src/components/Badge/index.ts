@@ -5,5 +5,5 @@ export {
   BillStatusBadge,
   MedStatusBadge,
   AllergySeverityBadge,
-} from '@careconnect/ui';
-export type { BadgeVariant } from '@careconnect/ui';
+} from './Badge';
+export type { BadgeVariant } from './Badge';

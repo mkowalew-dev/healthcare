@@ -1,7 +1,7 @@
 name: Portal Release
 
 # Triggers:
-#   1. Push to main with changes under portal/ → build + save artifact (30d)
+#   1. Push to main with changes under portal/ → build only (no artifact saved)
 #   2. Push of a portal-vX.Y.Z tag           → build + create GitHub Release
 on:
   push:
@@ -31,11 +31,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
-          cache-dependency-path: portal/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        working-directory: .
+        run: npm ci --workspace=portal
 
       - name: TypeScript check + Vite build
         run: npm run build
@@ -49,13 +48,14 @@ jobs:
       - name: Package release artifact
         run: make release VERSION=${{ steps.ver.outputs.version }}
 
-      # Always upload the tarball as a workflow artifact (available for 30 days)
+      # Only upload the tarball when publishing a tagged release
       - name: Upload artifact
+        if: startsWith(github.ref, 'refs/tags/portal-v')
         uses: actions/upload-artifact@v4
         with:
           name: careconnect-portal-${{ steps.ver.outputs.version }}-${{ github.sha }}
           path: portal/careconnect-portal-${{ steps.ver.outputs.version }}.tar.gz
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: error
 
       # On a tag push, also publish a versioned GitHub Release

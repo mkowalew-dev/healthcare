@@ -2,7 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+const uiPkg = resolve(__dirname, '../packages/ui/src/index.ts');
+
 export default defineConfig({
+  resolve: {
+    alias: { '@careconnect/ui': uiPkg },
+  },
   plugins: [
     react(),
     // Rewrite /haiku/* → /haiku.html in the dev server so the Haiku SPA is

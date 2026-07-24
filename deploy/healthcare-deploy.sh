@@ -308,9 +308,12 @@ init_frontend() {
     info "  Clinical portal: ${CLINICAL_HOST}"
     info "  Patient portal:  ${PATIENT_HOST:-'(not set)'}"
 
-    info "Syncing frontend, BFF, and deploy scripts..."
+    info "Syncing frontend, shared packages, BFF, and deploy scripts..."
     rsync_to "${ROOT_DIR}/frontend/" "${pub_ip}" "~/careconnect/frontend/" \
       --exclude 'node_modules' --exclude 'dist' --exclude '*.log'
+    rsync_to "${ROOT_DIR}/packages/" "${pub_ip}" "~/careconnect/packages/" \
+      --exclude 'node_modules' --exclude '.storybook'
+    rsync_to "${ROOT_DIR}/package.json" "${pub_ip}" "~/careconnect/"
     rsync_to "${ROOT_DIR}/bff/" "${pub_ip}" "~/careconnect/bff/" \
       --exclude 'node_modules' --exclude '.env' --exclude '*.log'
     sync_deploy "${pub_ip}"
@@ -441,9 +444,12 @@ update_frontend() {
   for pub_ip in "${FRONTEND_PUBLIC_IP_ARRAY[@]}"; do
     header "Update Web node $((idx+1))/${#FRONTEND_PUBLIC_IP_ARRAY[@]}  (${pub_ip})"
 
-    info "Syncing frontend and BFF source..."
+    info "Syncing frontend, shared packages, and BFF source..."
     rsync_to "${ROOT_DIR}/frontend/" "${pub_ip}" "~/careconnect/frontend/" \
       --exclude 'node_modules' --exclude 'dist' --exclude '*.log'
+    rsync_to "${ROOT_DIR}/packages/" "${pub_ip}" "~/careconnect/packages/" \
+      --exclude 'node_modules' --exclude '.storybook'
+    rsync_to "${ROOT_DIR}/package.json" "${pub_ip}" "~/careconnect/"
     rsync_to "${ROOT_DIR}/bff/" "${pub_ip}" "~/careconnect/bff/" \
       --exclude 'node_modules' --exclude '.env' --exclude '*.log'
     sync_deploy "${pub_ip}"

@@ -1,12 +1,14 @@
 # CareConnect EHR
 
-**v2.5.2** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
+**v2.6.0** — An EPIC-compatible Electronic Health Record (EHR) demo application built for demonstrating ThousandEyes Assurance and Splunk Observability technologies.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Tailwind CSS (Cisco theme) |
+| Component Library | `@careconnect/ui` — shared Cisco design system (`packages/ui/`) |
+| Design Sandbox | Storybook 8 (`packages/ui/.storybook/`) — run `npm run storybook` |
 | Backend | Node.js + Express (12 PM2 domain services) |
 | Database | PostgreSQL 17 |
 | Auth | JWT (12h expiry) |
@@ -57,6 +59,12 @@ npm run mock      # Mock services on :3002
 cd frontend
 npm install
 npm run dev       # React app on :5173
+```
+
+5. Component Library + Storybook (optional — for UI development):
+```bash
+npm install                # from repo root (sets up workspace)
+npm run storybook          # → http://localhost:6006
 ```
 
 > **Tip:** Run API and mock together: `cd backend && npm run dev:all`
@@ -115,6 +123,49 @@ SharePoint-style intranet built on the same Cisco design system as the EHR (IBM 
 **Port:** 8090 (configurable)  
 **Dev:** `cd portal && npm run dev`  
 **Release:** `cd portal && make release` → `careconnect-portal-{version}.tar.gz`
+
+---
+
+### `@careconnect/ui` — Shared Component Library (`packages/ui/`)
+
+A Cisco-branded React component library shared across all three frontend SPAs (Clinical EHR, Internal Portal, PACS Viewer). Consumed at build time via a Vite alias — no pre-compilation step required.
+
+**Components**
+
+| Component | Variants / Notes |
+|-----------|-----------------|
+| `Badge` | 9 semantic variants (`normal`, `abnormal`, `critical`, `pending`, `success`, `warning`, `error`, `info`, `gray`) + 5 domain composites |
+| `Button` | `primary` / `secondary` / `danger` / `ghost`; sm/md/lg; `loading` spinner; icon slots |
+| `Card` | Container + `CardHeader` with action slot; `StatCard` for KPI tiles with delta/icon |
+| `Input` | Label, hint, error, disabled, left/right adornment; full ARIA |
+| `LoadingSpinner` | sm/md/lg + `PageLoader` full-height wrapper |
+| `Modal` | sm/md/lg/xl sizes; scrollable body; optional footer |
+
+**Design tokens** (single source — `packages/ui/tailwind.config.js`)
+
+| Token | Value |
+|-------|-------|
+| `cisco-blue` | `#049FD9` |
+| `cisco-dark-blue` | `#1D4289` |
+| `cisco-cyan` | `#00BCEB` |
+| `cisco-green` | `#6EBE4A` |
+| `cisco-orange` | `#FBAB18` |
+| `cisco-red` | `#E2231A` |
+| Font | IBM Plex Sans (self-hosted, 300–700) |
+| Shadow | `card`, `card-hover`, `header` |
+
+**Storybook 8** — visual catalog with controls, a11y audit, and multiple background presets:
+
+```bash
+npm run storybook          # from repo root → http://localhost:6006
+npm run build-storybook    # static build
+```
+
+**Usage in apps:**
+
+```tsx
+import { Button, Badge, Card, StatCard, Input, Modal, LoadingSpinner } from '@careconnect/ui';
+```
 
 ---
 
