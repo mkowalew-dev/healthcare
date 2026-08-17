@@ -66,7 +66,7 @@ BFF_SRC="${BFF_SRC:-}"   # path to bff/ source on this VM (set via env var)
 
 # Splunk Observability Cloud — RUM (Real User Monitoring)
 # Get the RUM token from: Splunk O11y Cloud → Settings → Access Tokens (type: RUM)
-SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN:-CHANGE_THIS_RUM_TOKEN}"
+SPLUNK_RUM_TOKEN="${SPLUNK_RUM_TOKEN:-}"
 SPLUNK_REALM="${SPLUNK_REALM:-us1}"
 APP_ENV="${APP_ENV:-production}"
 SPLUNK_ACCESS_TOKEN="${SPLUNK_ACCESS_TOKEN:-}"
@@ -91,7 +91,7 @@ info() { echo -e "${BLUE}[$(date '+%H:%M:%S')] → $1${NC}"; }
 [[ $EUID -ne 0 ]] && err "Run as root: sudo bash 03-setup-frontend.sh"
 [[ -z "${API_ALB_DNS}" && -z "${API_PRIVATE_IPS}" ]] && \
   err "Set API_ALB_DNS (internal API ALB) or API_PRIVATE_IPS (direct VM IPs) in config.env"
-[[ "$SPLUNK_RUM_TOKEN" == "CHANGE_THIS_RUM_TOKEN" ]] && \
+[[ -z "$SPLUNK_RUM_TOKEN" ]] && \
   warn "SPLUNK_RUM_TOKEN not set — RUM will be disabled in this build"
 [[ -z "${PATIENT_HOST}" ]] && \
   warn "PATIENT_HOST not set — patient portal cross-domain redirect will be disabled"
