@@ -291,7 +291,21 @@ bash deploy/pacs-deploy.sh status
 
 The PACS viewer opens at `http://<PACS_PUBLIC_IP>:5174`. Log in with `dr.chen@careconnect.demo` / `Demo123!`.
 
-That's it for a working deployment. The sections below explain each step in detail.
+That's it for a working multi-VM deployment. The sections below explain each step in detail.
+
+### Alternative: Single-VM deployment
+
+For a lightweight demo or dev box, `deploy/single-vm-deploy.sh` puts all 3 web portals — CareConnect clinical, MyChart patient, and Haiku mobile — plus the full backend (Postgres, API gateway + domain services, Mock external services, BFF, Nginx) on **one** VM instead of VM1–VM4. It reuses the exact same `01`/`02`/`03`/`04`/`06` setup scripts as `healthcare-deploy.sh`, just addressed via loopback since everything is co-located. No ALB, no multi-region, no Smart Care tier.
+
+```bash
+# Uses the same config.env — set SINGLE_VM_PUBLIC_IP first
+vi deploy/config.env    # SINGLE_VM_PUBLIC_IP=<vm-ip>
+
+bash deploy/single-vm-deploy.sh init all      # ~10 min
+bash deploy/single-vm-deploy.sh status
+```
+
+Requires a t3.medium or larger — it now runs Postgres, 11 PM2-managed domain services, Mock, BFF, and Nginx on one box. Only ports 22 (SSH) and 80 (HTTP) need to be open; everything else stays on loopback. Point `CLINICAL_HOST`/`PATIENT_HOST`/`MOBILE_HOST` DNS records at `SINGLE_VM_PUBLIC_IP` (or test with `curl -H "Host: <name>" http://<SINGLE_VM_PUBLIC_IP>/`) — see `bash deploy/single-vm-deploy.sh` (no args) for the full command reference.
 
 ---
 
